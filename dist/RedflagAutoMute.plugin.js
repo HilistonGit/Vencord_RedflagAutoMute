@@ -1,7 +1,7 @@
 /**
  * @name RedflagAutoMute
  * @author RedflagAutoMute contributors
- * @version 2.0.0
+ * @version 2.0.1
  * @description Муть токсичных людей вместе с друзьями.
  */
 "use strict";

@@ -1,4 +1,4 @@
-# Подробный справочник RedflagAutoMute 2.0.0
+# Подробный справочник RedflagAutoMute 2.0.1
 
 [← Установка и краткое руководство](../README.md)
 
@@ -136,3 +136,11 @@ npm run check
 
 
 Проверка серверных лимитов на синтетических аккаунтах: `node scripts/quota-smoke.cjs --run` (после cloud-smoke). Создаёт и удаляет временные группы, проверяет 5000/5001 записей и попытки обхода правил прямыми REST-запросами.
+
+## Установщик Windows 2.0.1
+
+Полный ZIP обязателен: install.ps1 использует scripts/installer-core.ps1 и локальные dist + SHA256SUMS.txt. CLI BetterDiscord 1.0.0 скачивается из официального релиза; SHA-256 архивов x64/ARM64 закреплён в исходниках. Проверяется загрузчик в последней app-* версии Discord, сохранённый betterdiscord.app.asar, package.json и наличие runtime. Это проверка файлов, не тест запуска Discord.
+
+Для автоматизации: powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -NonInteractive -Action Install -EnableMaintenance. Для обычной установки уберите -EnableMaintenance. Discord должен быть закрыт, если требуется установить BetterDiscord. -Channel stable|ptb|canary; -DiscordRoot позволяет указать нестандартный корневой каталог с папками app-*. -Action Status показывает диагностику; -Action DisableMaintenance удаляет задачу. -SkipBetterDiscord предназначен для ручной установки одного плагина и тестов, вместе с автообслуживанием запрещён.
+
+Задача RedflagAutoMute-Maintenance-<SID> использует InteractiveToken и минимальные права; повтор PT15M и триггер входа. Конкурирующие проверки блокируются mutex. Нет службы SYSTEM, пароля пользователя или удалённого управления. status.json сохраняет только последнюю проверку; журналы CLI перезаписываются, чтобы не накапливаться.

@@ -1,76 +1,104 @@
 ﻿[CmdletBinding()]
 param(
     [string]$PluginDirectory = (Join-Path $env:APPDATA 'BetterDiscord\plugins'),
+    [ValidateSet('stable','ptb','canary')][string]$Channel='stable',
+    [string]$DiscordRoot,
+    [string]$MaintenanceDirectory=(Join-Path $env:LOCALAPPDATA 'RedflagAutoMute\maintenance'),
+    [ValidateSet('Menu','Install','Status','DisableMaintenance')][string]$Action='Menu',
+    [switch]$EnableMaintenance,
     [switch]$NonInteractive,
     [switch]$SkipBetterDiscord
 )
-$ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$releaseBase = 'https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.0'
-$pluginName = 'RedflagAutoMute.plugin.js'
-$source = Join-Path $PSScriptRoot ('dist\' + $pluginName)
-$manifest = Join-Path $PSScriptRoot 'SHA256SUMS.txt'
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('RedflagAutoMute-' + [Guid]::NewGuid().ToString('N'))
-function Get-Sha256([string]$File) {
-    $stream = [IO.File]::OpenRead($File)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
-    finally { $sha.Dispose(); $stream.Dispose() }
+$ErrorActionPreference='Stop'
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+. (Join-Path $PSScriptRoot 'scripts\installer-core.ps1')
+$bdRoot=Join-Path $env:APPDATA 'BetterDiscord'
+$customRoot=!!$DiscordRoot
+if (!$DiscordRoot) { $DiscordRoot=Get-RfamDiscordRoot $Channel }
+$source=Join-Path $PSScriptRoot "dist\$RfamPlugin"; $manifest=Join-Path $PSScriptRoot 'SHA256SUMS.txt'
+function Show-RfamHeader {
+    Write-Host ''
+    Write-Host ' ============================================================' -ForegroundColor DarkCyan
+    Write-Host "   REDFLAG AUTOMUTE $RfamVersion | Установка и восстановление" -ForegroundColor Cyan
+    Write-Host ' ============================================================' -ForegroundColor DarkCyan
+    $health=Get-RfamHealth $DiscordRoot $bdRoot
+    Write-Host " Discord: $Channel | $DiscordRoot" -ForegroundColor Gray
+    Write-Host (' BetterDiscord: '+$health.Reason) -ForegroundColor $(if($health.Healthy){'Green'}else{'Yellow'})
+    Write-Host (' Плагин: '+$(if(Test-Path -LiteralPath (Join-Path $PluginDirectory $RfamPlugin)){'установлен'}else{'не установлен'}))
+    try { $task=Get-RfamTask; Write-Host (' Автовосстановление: '+$(if($task -and $task.Enabled){'включено (15 минут + вход в Windows)'}else{'выключено'})) } catch { Write-Host ' Планировщик Windows недоступен' -ForegroundColor Yellow }
+    Write-Host ''
 }
-function Assert-PluginHash([string]$File, [string]$ManifestFile) {
-    $line = @(Get-Content -LiteralPath $ManifestFile | Where-Object { $_ -match '^[a-fA-F0-9]{64}\s+(dist/)?RedflagAutoMute\.plugin\.js$' })
-    if ($line.Count -ne 1) { throw 'Не найдена однозначная контрольная сумма плагина.' }
-    $expected = ($line[0] -split '\s+')[0]
-    if ((Get-Sha256 $File) -ne $expected) { throw 'Контрольная сумма не совпадает. Скачайте релиз заново.' }
-    if ((Get-Content -LiteralPath $File -Raw) -notmatch '@name RedflagAutoMute') { throw 'Неверный файл плагина.' }
+function Show-RfamStatus {
+    Show-RfamHeader
+    $statusFile=Join-Path $MaintenanceDirectory 'status.json'
+    if(Test-Path -LiteralPath $statusFile){$status=Get-Content -LiteralPath $statusFile -Raw|ConvertFrom-Json;Write-Host " Последняя проверка (UTC): $($status.checkedAt)";Write-Host " $($status.message)"}
+    Write-Host " Файлы плагинов: $PluginDirectory"
+    Write-Host " Состояние и журналы: $MaintenanceDirectory"
+    Write-Host ' Проверяется наличие загрузчика; работоспособность интерфейса внутри Discord автоматически не проверяется.'
+}
+function Start-RfamInstallCore([bool]$Maintenance) {
+    if($Maintenance -and $SkipBetterDiscord){throw 'Автовосстановление нельзя включить с -SkipBetterDiscord.'}
+    Write-Host '[1/4] Проверка файлов релиза и контрольных сумм...' -ForegroundColor Cyan
+    Assert-RfamPayload $source $manifest
+    if(!$SkipBetterDiscord -and (Test-RfamDiscordRunning)) {
+        $health=Get-RfamHealth $DiscordRoot $bdRoot
+        if(!$health.Healthy){
+            if($NonInteractive){throw 'Закройте Discord перед установкой BetterDiscord.'}
+            Write-Host ' Полностью закройте Discord: правой кнопкой на значке в трее → Quit Discord.' -ForegroundColor Yellow
+            Write-Host ' Затем нажмите Enter. Для отмены введите 0.'
+            do {if((Read-Host ' Продолжить') -eq '0'){return};$running=Test-RfamDiscordRunning;if($running){Write-Host ' Discord всё ещё запущен. Проверьте значок в трее.' -ForegroundColor Yellow}} while($running)
+        }
+    }
+    Write-Host '[2/4] Установка плагина и BetterDiscord через официальный CLI...' -ForegroundColor Cyan
+    Write-Host ' Первая загрузка может занять несколько минут. Оставьте это окно открытым.'
+    Install-RfamStack $source $manifest $PluginDirectory $DiscordRoot $bdRoot (Join-Path $MaintenanceDirectory 'cache') -SkipBetterDiscord:$SkipBetterDiscord
+    if($SkipBetterDiscord){Write-Host '[3/4] Проверка BetterDiscord пропущена (-SkipBetterDiscord).' -ForegroundColor Yellow}else{Write-Host '[3/4] Проверка подключения к текущей версии Discord пройдена.' -ForegroundColor Green}
+    if($Maintenance){
+        Write-Host '[4/4] Включение фонового восстановления...' -ForegroundColor Cyan
+        Enable-RfamMaintenance $PSScriptRoot $MaintenanceDirectory $PluginDirectory $DiscordRoot $bdRoot
+        Write-Host ' Проверка раз в 15 минут и после входа в Windows. Для восстановления закройте Discord.'
+    } else {Write-Host '[4/4] Установка завершена. Настройка фоновой задачи не изменена.'}
+    Write-Host ''
+    Write-Host ' ГОТОВО — запустите Discord и включите RedflagAutoMute в разделе Плагины.' -ForegroundColor Green
+    Write-Host ' Шестерёнка → Подключение → У меня есть приглашение → вставить код друга.'
+    Write-Host ' Для нового аккаунта: Нет аккаунта? Создать → email и отдельный пароль.'
+    Write-Host ' Ваши настройки, группы и пароли сохранены.'
+}
+function Start-RfamInstall([bool]$Maintenance) {
+    $mutex=New-Object Threading.Mutex($false,('Local\'+(Get-RfamTaskName)))
+    $locked=$false
+    try {
+        try {$locked=$mutex.WaitOne(0)} catch [Threading.AbandonedMutexException] {$locked=$true}
+        if(!$locked){throw 'Другая установка или фоновая проверка уже выполняется. Повторите позже.'}
+        Start-RfamInstallCore $Maintenance
+    } finally {if($locked){$mutex.ReleaseMutex()};$mutex.Dispose()}
 }
 try {
-    Write-Host 'RedflagAutoMute 2.0.0 — установка для Windows' -ForegroundColor Cyan
-    if (!(Test-Path -LiteralPath $source) -or !(Test-Path -LiteralPath $manifest)) {
-        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-        $source = Join-Path $tempRoot $pluginName
-        $manifest = Join-Path $tempRoot 'SHA256SUMS.txt'
-        Write-Host 'Скачиваем плагин из официального релиза проекта...'
-        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$pluginName" -OutFile $source
-        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile $manifest
+    if($NonInteractive -and $Action -eq 'Menu'){$Action='Install'}
+    if($Action -eq 'Install'){Start-RfamInstall ([bool]$EnableMaintenance);exit 0}
+    if($Action -eq 'Status'){Show-RfamStatus;exit 0}
+    if($Action -eq 'DisableMaintenance'){Disable-RfamMaintenance;Write-Host 'Фоновая задача удалена. Плагин и настройки сохранены.';exit 0}
+    while($true){
+        Show-RfamHeader
+        Write-Host '  [1] Установить / восстановить + включить автовосстановление' -ForegroundColor White
+        Write-Host '  [2] Установить / обновить только плагин и BetterDiscord'
+        Write-Host '  [3] Диагностика и пути журналов'
+        Write-Host '  [4] Отключить автовосстановление'
+        Write-Host '  [5] Выбрать Discord: Stable / PTB / Canary'
+        Write-Host '  [0] Выход'
+        Write-Host ''
+        $choice=Read-Host ' Выберите пункт [1]'
+        try {
+            switch($choice){
+                {$_ -in @('','1')} {Start-RfamInstall $true}
+                '2' {Start-RfamInstall $false}
+                '3' {Show-RfamStatus}
+                '4' {Disable-RfamMaintenance;Write-Host ' Автовосстановление отключено. Плагин и настройки сохранены.' -ForegroundColor Green}
+                '5' {if($customRoot){Write-Host 'Используется путь -DiscordRoot; для смены перезапустите без него.'}else{$new=Read-Host ' stable / ptb / canary';if($new -in @('stable','ptb','canary')){$Channel=$new;$DiscordRoot=Get-RfamDiscordRoot $Channel}else{Write-Host 'Неизвестный канал'}}}
+                '0' {exit 0}
+                default {Write-Host ' Выберите номер пункта.' -ForegroundColor Yellow}
+            }
+        } catch {Write-Host (' Ошибка: '+$_.Exception.Message) -ForegroundColor Red;Write-Host ' Можно исправить проблему и повторить установку в этом же окне.'}
+        Read-Host ' Enter — вернуться в меню' | Out-Null
     }
-    Assert-PluginHash $source $manifest
-    $bdRoot = Join-Path $env:APPDATA 'BetterDiscord'
-    if (!$SkipBetterDiscord -and !(Test-Path -LiteralPath (Join-Path $bdRoot 'data\betterdiscord.asar'))) {
-        if ($NonInteractive) { throw 'Сначала установите BetterDiscord: https://betterdiscord.app/' }
-        Write-Host 'BetterDiscord не найден. Его официальный установщик потребует вашего участия и может перезапустить Discord.'
-        $answer = Read-Host 'Открыть официальный установщик BetterDiscord? [y/N]'
-        if ($answer -notmatch '^(y|yes|д|да)$') { throw 'Установите BetterDiscord и запустите этот скрипт снова.' }
-        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/BetterDiscord/Installer/releases/latest' -Headers @{ 'User-Agent'='RedflagAutoMute-Installer' }
-        $asset = @($release.assets | Where-Object { $_.name -eq 'BetterDiscord-Installer-Windows.exe' })
-        if ($asset.Count -ne 1 -or $asset[0].browser_download_url -notlike 'https://github.com/BetterDiscord/Installer/releases/download/*') { throw 'Не найден официальный установщик. Откройте https://betterdiscord.app/' }
-        $digest = [string]$asset[0].digest
-        if ($digest -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'GitHub не предоставил контрольную сумму установщика. Установите BetterDiscord вручную с https://betterdiscord.app/' }
-        $installer = Join-Path $tempRoot 'BetterDiscord-Installer-Windows.exe'
-        Invoke-WebRequest -UseBasicParsing -Uri $asset[0].browser_download_url -OutFile $installer
-        if ((Get-Sha256 $installer) -ne $digest.Substring(7)) { throw 'Неверная контрольная сумма установщика BetterDiscord.' }
-        Start-Process -FilePath $installer -Wait -WindowStyle Normal
-        if (!(Test-Path -LiteralPath (Join-Path $bdRoot 'data\betterdiscord.asar'))) { throw 'Завершите установку BetterDiscord и повторите запуск.' }
-    }
-    New-Item -ItemType Directory -Path $PluginDirectory -Force | Out-Null
-    $destination = Join-Path $PluginDirectory $pluginName
-    if ((Test-Path -LiteralPath $destination) -and (Get-Sha256 $destination) -ne (Get-Sha256 $source)) {
-        $backup = Join-Path (Split-Path -Parent $PluginDirectory) 'redflag-backups'
-        New-Item -ItemType Directory -Path $backup -Force | Out-Null
-        Copy-Item -LiteralPath $destination -Destination (Join-Path $backup ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N') + '.js.bak'))
-        Write-Host "Предыдущий файл сохранён: $backup"
-    }
-    $staged = Join-Path $PluginDirectory ('redflag-' + [Guid]::NewGuid().ToString('N') + '.tmp')
-    Copy-Item -LiteralPath $source -Destination $staged
-    Assert-PluginHash $staged $manifest
-    Move-Item -LiteralPath $staged -Destination $destination -Force
-    Write-Host 'Готово. Настройки и аккаунты сохранены.' -ForegroundColor Green
-    Write-Host '1. Discord → Настройки → BetterDiscord → Плагины → включите RedflagAutoMute.'
-    Write-Host '2. Шестерёнка плагина → Подключение → У меня есть приглашение.'
-    Write-Host '3. Вставьте код друга. Создайте свой аккаунт плагина или войдите.'
-    Write-Host 'Пароль Discord или Google не нужен. Discord не перезапускается этим скриптом.'
-} catch {
-    Write-Host ('Ошибка: ' + $_.Exception.Message) -ForegroundColor Red
-    exit 1
-}
+} catch {Write-Host ('Ошибка: '+$_.Exception.Message) -ForegroundColor Red;exit 1}
