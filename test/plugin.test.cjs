@@ -106,3 +106,17 @@ test("changing Firebase project clears the previous project's identity and group
     assert.equal(p.client.session, null);
     assert.deepEqual(p.account.groups, []); assert.deepEqual(p.account.cache, {});
 });
+test('healthy events suppress polling; failed stream enables scheduled fallback',()=>{
+ const p=setup(async()=>snapshot());let polls=0;let healthy=true;
+ p.setupFeatures=()=>{};p.setupVoiceWatchers=()=>{};p.setupRealtime=()=>{};
+ p.realtime={healthy:()=>healthy};p.sync=()=>{polls++;};p.nextSync=0;
+ p.tick();assert.equal(polls,0);healthy=false;p.tick();assert.equal(polls,1);
+ p.nextSync=Date.now()+5000;p.tick();assert.equal(polls,1);
+});
+test('event snapshot wins against a slower fallback HTTP response',async()=>{
+ let resolve;const p=setup(()=>new Promise(r=>resolve=r));
+ const pending=p.sync();await new Promise(setImmediate);
+ p.versions.group=1;p.account.cache.group=snapshot();p.apply();
+ resolve({members:{alice:'owner'}});await pending;
+ assert.ok(muted.has(A));assert.ok(p.account.cache.group.cards[A]);
+});

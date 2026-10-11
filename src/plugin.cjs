@@ -3,6 +3,7 @@
 const { desiredMutes, summarize, MuteController, snowflake } = require("./core.cjs");
 const { FirebaseClient, validateConfig } = require("./firebase.cjs");
 const { transport } = require("./transport.cjs");
+const { Realtime } = require("./realtime.cjs");
 const { databaseFlags, VideoController, NoteController, Highlights } = require("./features.cjs");
 const { settingsPanel } = require("./settings.cjs");
 const {discordExport,exportList,bannedIds}=require("./transfer.cjs");
@@ -31,7 +32,7 @@ module.exports = class RedflagAutoMute {
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
         this.tick();
-        this.timer = setInterval(() => this.tick(), 2000);
+        this.timer = setInterval(() => this.tick(), 1000);
     }
     save() { BdApi.Data.save(NAME, "accounts", this.accounts); }
     error(error) {
@@ -67,10 +68,12 @@ module.exports = class RedflagAutoMute {
             this.setupFeatures();
             this.setupVoiceWatchers();
             this.apply();
-            if (this.client?.session && Date.now() >= (this.nextSync || 0)) void this.sync();
+            this.setupRealtime();
+            if (this.client?.session && !this.realtime?.healthy() && Date.now() >= (this.nextSync || 0)) void this.sync();
         } catch (error) { this.status = error.message; }
     }
     makeClient() {
+        this.realtime?.close(); this.realtime = null;
         this.client = null;
         this.notes = null;
         try {
@@ -87,6 +90,45 @@ module.exports = class RedflagAutoMute {
                 }
             });
         } catch { /* Empty configuration is expected on first run. */ }
+    }
+    setupRealtime() {
+        if (!this.client?.session) { this.realtime?.close(); this.realtime = null; return; }
+        const client = this.client, epoch = this.epoch, account = this.account;
+        if (!this.realtime) this.realtime = new Realtime(client, (path, value) => {
+            if (!this.running || this.epoch !== epoch || this.client !== client) return;
+            if (path.startsWith("userGroups/")) {
+                const ids = Object.keys(value || {}).filter(id => /^[a-zA-Z0-9_-]{1,128}$/.test(id));
+                const old = new Map(account.groups.map(g => [g.id,g]));
+                account.groups = ids.map(id => old.get(id) || {id,name:id.slice(0,8),enabled:true});
+                this.groupsRevision = (this.groupsRevision || 0) + 1;
+                for (const id of Object.keys(account.cache)) if (!ids.includes(id)) delete account.cache[id];
+                this.setupRealtime();
+            } else {
+                const id = path.slice(7);
+                this.versions[id] = (this.versions[id] || 0) + 1;
+                const group = account.groups.find(g => g.id === id);
+                if (!group) return;
+                if (value && value.members?.[client.session.uid]) { account.cache[id] = value; group.name = value.name; }
+                else delete account.cache[id];
+            }
+            this.status = `Событийная синхронизация ${new Date().toLocaleTimeString()}`;
+            this.save(); this.apply();
+        }, (path, error) => {
+            if (!this.running || this.epoch !== epoch || this.client !== client) return;
+            if ([401,403].includes(error.status) && path.startsWith("groups/")) {
+                const id = path.slice(7);
+                this.versions[id] = (this.versions[id] || 0) + 1;
+                delete account.cache[id]; this.save(); this.apply();
+            }
+            if ([401,403].includes(error.status) && path.startsWith("userGroups/")) {
+                this.groupsRevision = (this.groupsRevision || 0) + 1;
+                for (const id of Object.keys(account.cache)) this.versions[id] = (this.versions[id] || 0) + 1;
+                account.cache = {}; this.save(); this.apply();
+            }
+            this.status = "Соединение с событиями прервано; резервная синхронизация";
+            this.nextSync = 0;
+        });
+        this.realtime.reconcile([`userGroups/${client.session.uid}`, ...account.groups.map(g => `groups/${g.id}`)]);
     }
     active() {
         return (this.account?.groups || []).filter(g => g.enabled && this.account.cache?.[g.id]).map(g => ({ ...this.account.cache[g.id], id: g.id }));
@@ -200,7 +242,7 @@ module.exports = class RedflagAutoMute {
             }
             if (!this.running || epoch !== this.epoch) return;
             this.status = problems.length ? `Нет синхронизации: ${problems.join("; ")}` : `Синхронизировано ${new Date().toLocaleTimeString()}`;
-            this.nextSync = Date.now() + (problems.length ? 30000 : 15000);
+            this.nextSync = Date.now() + (problems.length ? 30000 : 5000);
             this.save();
             this.apply();
         } finally { if (this.syncEpoch === epoch) this.syncEpoch = null; }
@@ -224,9 +266,10 @@ module.exports = class RedflagAutoMute {
         const epoch=this.epoch,client=this.client;
         await client.writeCards(groupId,ids,"red");
         if(!this.running||epoch!==this.epoch)return;
-        this.versions[groupId]=(this.versions[groupId]||0)+1;
+        const version=this.versions[groupId]=(this.versions[groupId]||0)+1;
         const snapshot=await client.readGroup(groupId);
         if(!this.running||epoch!==this.epoch)return;
+        if(this.versions[groupId]!==version)return ids.length;
         this.account.cache[groupId]=snapshot;this.save();this.apply();this.nextSync=0;
         return ids.length;
     }
@@ -284,6 +327,7 @@ module.exports = class RedflagAutoMute {
     }
     stop() {
         this.running = false;
+        this.realtime?.close(); this.realtime = null;
         this.epoch++;
         clearInterval(this.timer);
         clearTimeout(this.voiceApplyTimer); this.voiceApplyTimer = null;
