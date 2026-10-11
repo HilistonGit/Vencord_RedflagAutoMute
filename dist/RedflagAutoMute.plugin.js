@@ -554,15 +554,22 @@ class NoteController {
     constructor(adapter, owned = {}, save = () => {}, valid = () => true) {
         this.adapter = adapter; this.owned = owned; this.save = save; this.valid = valid;
         this.desired = {}; this.checked = {}; this.busy = false; this.next = 0;
+        this.priority = {}; this.revision = 0; this.retryAt = {};
         this.status = "Заметки: ожидание синхронизации";
     }
     async reconcile(desired, now = Date.now()) {
+        const revision = ++this.revision;
+        for (const id of new Set([...Object.keys(this.desired), ...Object.keys(desired)])) {
+            if (this.desired[id] !== desired[id]) this.priority[id] = revision;
+        }
         this.desired = { ...desired };
         if (this.busy || now < this.next || !this.valid() || this.adapter.editing?.()) return;
-        const id = [...new Set([...Object.keys(this.owned), ...Object.keys(desired)])].filter(snowflake).find(uid => {
+        const changed = uid => !this.checked[uid] || this.checked[uid].marker !== desired[uid];
+        const id = [...new Set([...Object.keys(this.owned), ...Object.keys(desired)])].filter(snowflake).filter(uid => {
             const check = this.checked[uid];
-            return !check || check.marker !== desired[uid] || now - check.at >= 300000;
-        });
+            return now >= (this.retryAt[uid] || 0) && (changed(uid) || now - check.at >= 300000);
+        }).sort((a,b) => Number(changed(b)) - Number(changed(a)) ||
+            (changed(a) ? (this.priority[b] || 0) - (this.priority[a] || 0) : this.checked[a].at - this.checked[b].at))[0];
         if (!id) return;
         this.busy = true;
         try {
@@ -585,11 +592,17 @@ class NoteController {
                 this.status = "Заметки: синхронизированы";
             }
             this.checked[id] = { marker, at: now };
+            delete this.retryAt[id];
             this.next = now + 2000;
         } catch (error) {
             this.status = `Заметки: ${error.message}`;
-            this.next = now + 30000;
+            this.retryAt[id] = now + 30000;
+            this.next = now + (error.status === 429 ? 30000 : 2000);
         } finally { this.busy = false; }
+    }
+    get pendingCount() {
+        return [...new Set([...Object.keys(this.owned), ...Object.keys(this.desired)])].filter(id =>
+            !this.checked[id] || this.checked[id].marker !== this.desired[id]).length;
     }
 }
 
@@ -721,7 +734,7 @@ function settingsPanel(plugin, parseInvite) {
         } else if(tab==="preferences") body=h("div",null,h("h2",null,"Мои настройки"),text("Эти настройки действуют только у вас."),
             ...[["includeYellow","Мутить за один жёлтый флажок","По умолчанию нужны два жёлтых от разных участников одной группы.",false],["disableVideo","Отключать видео","Вместе с голосом скрывать вебкамеру только у вас.",true],["markNotes","Добавлять информацию в заметки","ID записи и время блокировки. Ваш текст сохраняется. При выключенном плагине остаётся последний известный статус.",true]].map(([key,label,desc,fallback])=>toggle(label,desc,account[key]??fallback,v=>{account[key]=v;plugin.save();plugin.apply();})),
             h("h3",{style:{marginTop:20}},"Личные исключения"),text("ПКМ по человеку → Redflag → всегда разрешать / всегда мутить. Разрешение отменяет звук и видео-мут, но отметка базы остаётся."),...Object.entries(account.overrides).map(([id,value])=>card(h("code",null,id),text(value==="allow"?"Всегда разрешён":"Всегда замьючен"),btn("Следовать правилам групп",()=>plugin.override(id,null)))),Object.keys(account.overrides).length?null:text("Исключений нет."));
-        else body=h("div",null,h("h2",null,"Как это работает"),card(h("h3",null,"Флажки и мут"),text("Один красный или два жёлтых от разных участников одной включённой группы отключают звук и видео. Жёлтые из разных групп не складываются. При отзыве флажков ограничения снимаются.")),card(h("h3",null,"Группы"),text("Группа — отдельный список внутри подключённой базы. Учитываются все ваши включённые группы. Выключение группы действует только у вас; выход прекращает членство. Каталога чужих групп нет. После входа на другом устройстве список групп загружается автоматически. Владелец может удалить группу для всех участников с подтверждением.")),card(h("h3",null,"Заметки"),text("ID записи — ID группы / Discord ID пользователя. Время берётся из сохранённых флажков, вызвавших блокировку, в UTC. Это время по текущим голосам: после отзыва или замены карточек оно может измениться; отдельной истории банов пока нет. Если пользователь отмечен в нескольких группах, показана самая ранняя действующая блокировка.")),h("details",null,h("summary",null,"Диагностика"),text(plugin.status),text(plugin.notes?.status||"Заметки: ожидание"),text(plugin.video?"Видео подключено":"Видео недоступно")));
+        else body=h("div",null,h("h2",null,"Как это работает"),card(h("h3",null,"Флажки и мут"),text("Один красный или два жёлтых от разных участников одной включённой группы отключают звук и видео. Жёлтые из разных групп не складываются. При отзыве флажков ограничения снимаются.")),card(h("h3",null,"Группы"),text("Группа — отдельный список внутри подключённой базы. Учитываются все ваши включённые группы. Выключение группы действует только у вас; выход прекращает членство. Каталога чужих групп нет. После входа на другом устройстве список групп загружается автоматически. Владелец может удалить группу для всех участников с подтверждением.")),card(h("h3",null,"Заметки"),text("ID записи — ID группы / Discord ID пользователя. Время берётся из сохранённых флажков, вызвавших блокировку, в UTC. Это время по текущим голосам: после отзыва или замены карточек оно может измениться; отдельной истории банов пока нет. Если пользователь отмечен в нескольких группах, показана самая ранняя действующая блокировка.")),h("details",null,h("summary",null,"Диагностика"),text(plugin.status),text(plugin.notes?.status||"Заметки: ожидание"),plugin.notes?text(`Заметок в очереди: ${plugin.notes.pendingCount}`):null,text(plugin.video?"Видео подключено":"Видео недоступно")));
         return h("div",{className:"rf-settings"},h("style",null,CSS),h("h2",null,"RedflagAutoMute"),text("Муть токсичных людей вместе с друзьями."),h("nav",{"aria-label":"Разделы настроек",role:"tablist"},...[ ["groups","Мои группы"],["connect","Подключение"],["preferences","Мои настройки"],["help","Как это работает"] ].map(([key,label])=>h("button",{key,role:"tab","aria-selected":tab===key,onClick:()=>{setTab(key);go(null);select(null);}},label))),message?h("div",{className:"notice error",role:"alert"},message):null,busy?h("div",{role:"status",className:"notice"},"Подождите…"):null,body);
     }
     return h(Settings);

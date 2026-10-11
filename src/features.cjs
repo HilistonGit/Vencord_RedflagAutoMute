@@ -67,15 +67,22 @@ class NoteController {
     constructor(adapter, owned = {}, save = () => {}, valid = () => true) {
         this.adapter = adapter; this.owned = owned; this.save = save; this.valid = valid;
         this.desired = {}; this.checked = {}; this.busy = false; this.next = 0;
+        this.priority = {}; this.revision = 0; this.retryAt = {};
         this.status = "Заметки: ожидание синхронизации";
     }
     async reconcile(desired, now = Date.now()) {
+        const revision = ++this.revision;
+        for (const id of new Set([...Object.keys(this.desired), ...Object.keys(desired)])) {
+            if (this.desired[id] !== desired[id]) this.priority[id] = revision;
+        }
         this.desired = { ...desired };
         if (this.busy || now < this.next || !this.valid() || this.adapter.editing?.()) return;
-        const id = [...new Set([...Object.keys(this.owned), ...Object.keys(desired)])].filter(snowflake).find(uid => {
+        const changed = uid => !this.checked[uid] || this.checked[uid].marker !== desired[uid];
+        const id = [...new Set([...Object.keys(this.owned), ...Object.keys(desired)])].filter(snowflake).filter(uid => {
             const check = this.checked[uid];
-            return !check || check.marker !== desired[uid] || now - check.at >= 300000;
-        });
+            return now >= (this.retryAt[uid] || 0) && (changed(uid) || now - check.at >= 300000);
+        }).sort((a,b) => Number(changed(b)) - Number(changed(a)) ||
+            (changed(a) ? (this.priority[b] || 0) - (this.priority[a] || 0) : this.checked[a].at - this.checked[b].at))[0];
         if (!id) return;
         this.busy = true;
         try {
@@ -98,11 +105,17 @@ class NoteController {
                 this.status = "Заметки: синхронизированы";
             }
             this.checked[id] = { marker, at: now };
+            delete this.retryAt[id];
             this.next = now + 2000;
         } catch (error) {
             this.status = `Заметки: ${error.message}`;
-            this.next = now + 30000;
+            this.retryAt[id] = now + 30000;
+            this.next = now + (error.status === 429 ? 30000 : 2000);
         } finally { this.busy = false; }
+    }
+    get pendingCount() {
+        return [...new Set([...Object.keys(this.owned), ...Object.keys(this.desired)])].filter(id =>
+            !this.checked[id] || this.checked[id].marker !== this.desired[id]).length;
     }
 }
 

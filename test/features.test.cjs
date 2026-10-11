@@ -66,3 +66,16 @@ test("database note identifies the group and the vote that reaches the ban thres
     assert.match(databaseFlags([group],{includeYellow:true}).notes[A],/Забанен: 2026-01-01/);
     assert.equal(databaseFlags([group],{},A).notes[A],undefined);
 });
+test('large note queues finish new records before rechecking old ones',async()=>{
+ const ids=Array.from({length:255},(_,i)=>String(111111111111111111n+BigInt(i)));const writes=new Set();
+ const desired=Object.fromEntries(ids.map(id=>[id,BAN_NOTE]));
+ const notes=new NoteController({read:async()=>'',write:async id=>writes.add(id)});
+ for(let i=0;i<260;i++)await notes.reconcile(desired,100+i*2000);
+ assert.equal(writes.size,255);
+});
+test('new card takes priority over initial backlog and failed notes do not block others',async()=>{
+ const reads=[];const notes=new NoteController({read:async id=>{reads.push(id);if(id===A)throw Error('unavailable');return '';},write:async()=>{}});
+ await notes.reconcile({[A]:BAN_NOTE},100);
+ await notes.reconcile({[A]:BAN_NOTE,[B]:BAN_NOTE},2200);
+ assert.equal(reads.at(-1),B);assert.equal(notes.owned[B],BAN_NOTE);
+});
