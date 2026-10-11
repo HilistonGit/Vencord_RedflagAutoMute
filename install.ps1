@@ -25,7 +25,7 @@ function Show-RfamHeader {
     Write-Host " Discord: $Channel | $DiscordRoot" -ForegroundColor Gray
     Write-Host (' BetterDiscord: '+$health.Reason) -ForegroundColor $(if($health.Healthy){'Green'}else{'Yellow'})
     Write-Host (' Плагин: '+$(if(Test-Path -LiteralPath (Join-Path $PluginDirectory $RfamPlugin)){'установлен'}else{'не установлен'}))
-    try { $task=Get-RfamTask; Write-Host (' Автовосстановление: '+$(if($task -and $task.Enabled){'включено (15 минут + вход в Windows)'}else{'выключено'})) } catch { Write-Host ' Планировщик Windows недоступен' -ForegroundColor Yellow }
+    try { $task=Get-RfamTask; Write-Host (' Автовосстановление: '+$(if($task -and $task.Enabled){'включено (проверка запуска каждые 2 минуты)'}else{'выключено'})) } catch { Write-Host ' Планировщик Windows недоступен' -ForegroundColor Yellow }
     Write-Host ''
 }
 function Show-RfamStatus {
@@ -54,9 +54,10 @@ function Start-RfamInstallCore([bool]$Maintenance) {
     Install-RfamStack $source $manifest $PluginDirectory $DiscordRoot $bdRoot (Join-Path $MaintenanceDirectory 'cache') -SkipBetterDiscord:$SkipBetterDiscord
     if($SkipBetterDiscord){Write-Host '[3/4] Проверка BetterDiscord пропущена (-SkipBetterDiscord).' -ForegroundColor Yellow}else{Write-Host '[3/4] Проверка подключения к текущей версии Discord пройдена.' -ForegroundColor Green}
     if($Maintenance){
+        Write-Host ' Перед нужным перезапуском: предупреждение на 60 секунд и возможность отложить на час.'
         Write-Host '[4/4] Включение фонового восстановления...' -ForegroundColor Cyan
         Enable-RfamMaintenance $PSScriptRoot $MaintenanceDirectory $PluginDirectory $DiscordRoot $bdRoot
-        Write-Host ' Проверка раз в 15 минут и после входа в Windows. Для восстановления закройте Discord.'
+        Write-Host ' Проверка запуска каждые 2 минуты. При сбое — поиск исправления BetterDiscord раз в 15 минут.'
     } else {Write-Host '[4/4] Установка завершена. Настройка фоновой задачи не изменена.'}
     Write-Host ''
     Write-Host ' ГОТОВО — запустите Discord и включите RedflagAutoMute в разделе Плагины.' -ForegroundColor Green

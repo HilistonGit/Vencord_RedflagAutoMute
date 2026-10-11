@@ -484,6 +484,32 @@ class Realtime {
 module.exports={Realtime,stream,parser,update};
 
 },
+"./health.cjs": (module, exports, require) => {
+"use strict";
+// A small local startup signal, without IDs, group data or credentials.
+class RuntimeHealth {
+    constructor(folder, identity, io = require("fs"), clock = Date.now) {
+        this.io=io;this.clock=clock;this.identity=identity;this.startedAt=clock();this.next=0;
+        const channel=identity.channel;
+        if(!/^(stable|ptb|canary)$/.test(channel)||!folder)throw Error('Unknown Discord installation');
+        this.file=require('path').join(folder,`RedflagAutoMute.health.${channel}.json`);
+    }
+    pulse(state='running') {
+        const at=this.clock();if(state==='running'&&at<this.next)return;
+        const temporary=this.file+'.tmp';
+        this.io.writeFileSync(temporary,JSON.stringify({schema:1,state,startedAt:this.startedAt,seenAt:at,...this.identity}),'utf8');
+        this.io.renameSync(temporary,this.file);this.next=at+60000;
+    }
+}
+function createRuntimeHealth() {
+    const app=globalThis.DiscordNative?.app;
+    const channel=globalThis.GLOBAL_ENV?.RELEASE_CHANNEL || app?.getReleaseChannel?.();
+    const folder=globalThis.BdApi?.Plugins?.folder;
+    return new RuntimeHealth(folder,{channel,discordVersion:app?.getVersion?.() || ''});
+}
+module.exports={RuntimeHealth,createRuntimeHealth};
+
+},
 "./features.cjs": (module, exports, require) => {
 "use strict";
 
@@ -749,6 +775,7 @@ const { desiredMutes, summarize, MuteController, snowflake } = require("./core.c
 const { FirebaseClient, validateConfig } = require("./firebase.cjs");
 const { transport } = require("./transport.cjs");
 const { Realtime } = require("./realtime.cjs");
+const { createRuntimeHealth } = require("./health.cjs");
 const { databaseFlags, VideoController, NoteController, Highlights } = require("./features.cjs");
 const { settingsPanel } = require("./settings.cjs");
 const {discordExport,exportList,bannedIds}=require("./transfer.cjs");
@@ -776,6 +803,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
+        try { this.runtimeHealth = createRuntimeHealth(); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }
@@ -785,6 +813,7 @@ module.exports = class RedflagAutoMute {
         BdApi.UI.showToast(`Redflag: ${this.status}`, { type: "error" });
     }
     tick() {
+        try { this.runtimeHealth?.pulse(); } catch { /* Maintenance must not interrupt the plugin. */ }
         try {
             const id = BdApi.Webpack.getStore("UserStore")?.getCurrentUser()?.id;
             if (!id) return;
@@ -1071,6 +1100,8 @@ module.exports = class RedflagAutoMute {
         return BdApi.React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 8 } }, this.flagIcon(color), text);
     }
     stop() {
+        try { this.runtimeHealth?.pulse("stopped"); } catch {}
+        this.runtimeHealth = null;
         this.running = false;
         this.realtime?.close(); this.realtime = null;
         this.epoch++;

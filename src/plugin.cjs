@@ -4,6 +4,7 @@ const { desiredMutes, summarize, MuteController, snowflake } = require("./core.c
 const { FirebaseClient, validateConfig } = require("./firebase.cjs");
 const { transport } = require("./transport.cjs");
 const { Realtime } = require("./realtime.cjs");
+const { createRuntimeHealth } = require("./health.cjs");
 const { databaseFlags, VideoController, NoteController, Highlights } = require("./features.cjs");
 const { settingsPanel } = require("./settings.cjs");
 const {discordExport,exportList,bannedIds}=require("./transfer.cjs");
@@ -31,6 +32,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
+        try { this.runtimeHealth = createRuntimeHealth(); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }
@@ -40,6 +42,7 @@ module.exports = class RedflagAutoMute {
         BdApi.UI.showToast(`Redflag: ${this.status}`, { type: "error" });
     }
     tick() {
+        try { this.runtimeHealth?.pulse(); } catch { /* Maintenance must not interrupt the plugin. */ }
         try {
             const id = BdApi.Webpack.getStore("UserStore")?.getCurrentUser()?.id;
             if (!id) return;
@@ -326,6 +329,8 @@ module.exports = class RedflagAutoMute {
         return BdApi.React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 8 } }, this.flagIcon(color), text);
     }
     stop() {
+        try { this.runtimeHealth?.pulse("stopped"); } catch {}
+        this.runtimeHealth = null;
         this.running = false;
         this.realtime?.close(); this.realtime = null;
         this.epoch++;

@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const root = path.resolve(__dirname, "..");
-const files = ["core", "transfer", "firebase", "transport", "realtime", "features", "settings", "plugin"];
+const files = ["core", "transfer", "firebase", "transport", "realtime", "health", "features", "settings", "plugin"];
 const publicConfig = JSON.parse(fs.readFileSync(path.join(root, "firebase.public.json"), "utf8"));
 if (Object.values(publicConfig).some(Boolean)) throw new Error("Public builds must have empty Firebase configuration. Use firebase.local.json and plugin settings.");
 const header = `/**

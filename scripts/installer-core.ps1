@@ -65,24 +65,16 @@ function Install-RfamPlugin([string]$Source,[string]$Manifest,[string]$PluginDir
         Copy-Item -LiteralPath $destination -Destination (Join-Path $backup ((Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N')+'.js.bak'))
     }
     $staged = Join-Path $PluginDirectory ('redflag-'+[guid]::NewGuid().ToString('N')+'.tmp')
-    try { Copy-Item -LiteralPath $Source -Destination $staged; Assert-RfamPayload $staged $Manifest; Move-Item -LiteralPath $staged -Destination $destination -Force }
+    try { Copy-Item -LiteralPath $Source -Destination $staged; Assert-RfamPayload $staged $Manifest; Copy-Item -LiteralPath $staged -Destination $destination -Force; Assert-RfamPayload $destination $Manifest }
     finally { if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged -Force } }
 }
 function Get-RfamCli([string]$CacheDirectory) {
     $architecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
     $arch = if ($architecture -eq 'ARM64') { 'arm64' } elseif ($architecture -eq 'AMD64') { 'amd64' } else { throw 'Автоустановка поддерживает Windows x64 и ARM64. Установите BetterDiscord вручную.' }
-    $hashes = @{amd64='4cc9ebf30c99311caf72ba2fad90d6c4a5ce2b77be4b83f7de8589d5de023b80';arm64='60838d7f7e4d6a70c76dedeee1e84bd551f3e32691cad8a690d6c08661131769'}
-    New-Item -ItemType Directory -Path $CacheDirectory -Force | Out-Null
-    $zip = Join-Path $CacheDirectory "bdcli-1.0.0-$arch.zip"
-    if (!(Test-Path -LiteralPath $zip) -or (Get-RfamHash $zip) -ne $hashes[$arch]) {
-        $url="https://github.com/BetterDiscord/cli/releases/download/v1.0.0/bdcli_1.0.0_windows_$arch.zip"
-        $curl=Join-Path $env:SystemRoot 'System32\curl.exe'
-        if(Test-Path -LiteralPath $curl){
-            & $curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --retry 1 --output $zip $url
-            if($LASTEXITCODE -ne 0){throw 'Не удалось скачать BetterDiscord CLI. Проверьте доступ к GitHub и повторите установку.'}
-        }else{Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $url -OutFile $zip}
-    }
-    if ((Get-RfamHash $zip) -ne $hashes[$arch]) { throw 'Контрольная сумма официального BetterDiscord CLI не совпадает.' }
+    $release=Get-RfamReleaseAsset 'BetterDiscord/cli' ("^bdcli_[0-9.]+_windows_"+$arch+'\.zip$') $CacheDirectory
+    $zip=Join-Path $CacheDirectory ('bdcli-'+$release.hash+'.zip')
+    if(!(Test-Path -LiteralPath $zip) -or (Get-RfamHash $zip) -ne $release.hash){Get-RfamRemoteFile $release.url $zip}
+    if((Get-RfamHash $zip) -ne $release.hash){throw 'Контрольная сумма официального BetterDiscord CLI не совпадает.'}
     # Extract only the executable, ignoring archive paths. Revalidate the archive before every execution.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($zip)
@@ -145,50 +137,26 @@ function Disable-RfamMaintenance {
 function Register-RfamTask([string]$Directory) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $service = New-Object -ComObject 'Schedule.Service'; $service.Connect(); $task = $service.NewTask(0)
-    $task.RegistrationInfo.Description = 'RedflagAutoMute: проверка BetterDiscord и восстановление отсутствующего плагина каждые 15 минут. Discord должен быть закрыт.'
+    $task.RegistrationInfo.Description = 'RedflagAutoMute: проверка запуска Discord каждые 2 минуты; при сбое проверка исправленных релизов BetterDiscord и восстановление с предупреждением.'
     $task.Principal.UserId=$sid; $task.Principal.LogonType=3; $task.Principal.RunLevel=0
     $task.Settings.Enabled=$true; $task.Settings.Hidden=$true; $task.Settings.StartWhenAvailable=$true
     $task.Settings.DisallowStartIfOnBatteries=$false; $task.Settings.StopIfGoingOnBatteries=$false
     $task.Settings.MultipleInstances=2; $task.Settings.ExecutionTimeLimit='PT10M'
-    $trigger=$task.Triggers.Create(1); $trigger.StartBoundary=(Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss'); $trigger.Repetition.Interval='PT15M'; $trigger.Enabled=$true
+    $trigger=$task.Triggers.Create(1); $trigger.StartBoundary=(Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss'); $trigger.Repetition.Interval='PT2M'; $trigger.Enabled=$true
     $login=$task.Triggers.Create(9); $login.UserId=$sid; $login.Enabled=$true; $login.Delay='PT1M'
     $action=$task.Actions.Create(0); $action.Path=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $action.Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $Directory 'scripts\maintenance.ps1')+'"'
+    $action.Arguments='-NoProfile -STA -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $Directory 'scripts\maintenance.ps1')+'"'
     $action.WorkingDirectory=$Directory
     $service.GetFolder('\').RegisterTaskDefinition((Get-RfamTaskName),$task,6,$sid,$null,3) | Out-Null
 }
 function Enable-RfamMaintenance([string]$PackageRoot,[string]$Directory,[string]$PluginDirectory,[string]$DiscordRoot,[string]$BdRoot) {
     New-Item -ItemType Directory -Path (Join-Path $Directory 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $Directory 'dist') -Force | Out-Null
-    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\maintenance.ps1','dist\RedflagAutoMute.plugin.js')) {
+    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\maintenance.ps1','scripts\recovery.ps1','dist\RedflagAutoMute.plugin.js')) {
         $from=Join-Path $PackageRoot $file; $to=Join-Path $Directory $file
         if ([IO.Path]::GetFullPath($from) -ne [IO.Path]::GetFullPath($to)) { Copy-Item -LiteralPath $from -Destination $to -Force }
     }
     @{version=$RfamVersion;pluginDirectory=$PluginDirectory;discordRoot=$DiscordRoot;bdRoot=$BdRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory 'maintenance.json') -Encoding UTF8
     Register-RfamTask $Directory
 }
-function Invoke-RfamMaintenance([string]$Directory) {
-    $config = Get-Content -LiteralPath (Join-Path $Directory 'maintenance.json') -Raw | ConvertFrom-Json
-    $status = [ordered]@{checkedAt=(Get-Date).ToUniversalTime().ToString('o');state='healthy';message='Восстановление не требуется'}
-    try {
-        $source=Join-Path $Directory "dist\$RfamPlugin"; $manifest=Join-Path $Directory 'SHA256SUMS.txt'
-        Assert-RfamPayload $source $manifest
-        $health=Get-RfamHealth $config.discordRoot $config.bdRoot
-        if ($health.Conflict) { throw $health.Reason }
-        if (!(Test-Path -LiteralPath $config.discordRoot)) { $status.state='missing-discord'; $status.message='Discord удалён или перемещён; автоматическая установка не выполняется' }
-        elseif (Test-RfamDiscordRunning) { $status.state='deferred'; $status.message='Discord открыт; восстановление отложено до его закрытия' }
-        elseif (Test-RfamUpdating $config.discordRoot) { $status.state='deferred'; $status.message='Discord обновляется; повтор при следующей проверке' }
-        else {
-            if (!$health.Healthy) {
-                Install-RfamStack $source $manifest $config.pluginDirectory $config.discordRoot $config.bdRoot (Join-Path $Directory 'cache') -MissingOnly
-                $status.state='repaired'; $status.message='Подключение BetterDiscord восстановлено'
-            } else {
-                $missing=!(Test-Path -LiteralPath (Join-Path $config.pluginDirectory $RfamPlugin))
-                Install-RfamPlugin $source $manifest $config.pluginDirectory -MissingOnly
-                if ($missing) { $status.state='repaired'; $status.message='Отсутствующий плагин восстановлен' }
-            }
-        }
-    } catch { $status.state='error'; $status.message=$_.Exception.Message }
-    $status | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory 'status.json') -Encoding UTF8
-    return [pscustomobject]$status
-}
+. (Join-Path $PSScriptRoot 'recovery.ps1')
