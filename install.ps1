@@ -1,121 +1,76 @@
-# Функция для вывода цветного текста
-function Write-ColorOutput($ForegroundColor) {
-    $fc = $host.UI.RawUI.ForegroundColor
-    $host.UI.RawUI.ForegroundColor = $ForegroundColor
-    if ($args) {
-        Write-Output $args
-    }
-    $host.UI.RawUI.ForegroundColor = $fc
+﻿[CmdletBinding()]
+param(
+    [string]$PluginDirectory = (Join-Path $env:APPDATA 'BetterDiscord\plugins'),
+    [switch]$NonInteractive,
+    [switch]$SkipBetterDiscord
+)
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$releaseBase = 'https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.0'
+$pluginName = 'RedflagAutoMute.plugin.js'
+$source = Join-Path $PSScriptRoot ('dist\' + $pluginName)
+$manifest = Join-Path $PSScriptRoot 'SHA256SUMS.txt'
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('RedflagAutoMute-' + [Guid]::NewGuid().ToString('N'))
+function Get-Sha256([string]$File) {
+    $stream = [IO.File]::OpenRead($File)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose(); $stream.Dispose() }
 }
-
-# Проверка прав администратора
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-ColorOutput Red "Этот скрипт требует прав администратора!"
-    Write-ColorOutput Red "Пожалуйста, запустите PowerShell от имени администратора и попробуйте снова."
+function Assert-PluginHash([string]$File, [string]$ManifestFile) {
+    $line = @(Get-Content -LiteralPath $ManifestFile | Where-Object { $_ -match '^[a-fA-F0-9]{64}\s+(dist/)?RedflagAutoMute\.plugin\.js$' })
+    if ($line.Count -ne 1) { throw 'Не найдена однозначная контрольная сумма плагина.' }
+    $expected = ($line[0] -split '\s+')[0]
+    if ((Get-Sha256 $File) -ne $expected) { throw 'Контрольная сумма не совпадает. Скачайте релиз заново.' }
+    if ((Get-Content -LiteralPath $File -Raw) -notmatch '@name RedflagAutoMute') { throw 'Неверный файл плагина.' }
+}
+try {
+    Write-Host 'RedflagAutoMute 2.0.0 — установка для Windows' -ForegroundColor Cyan
+    if (!(Test-Path -LiteralPath $source) -or !(Test-Path -LiteralPath $manifest)) {
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+        $source = Join-Path $tempRoot $pluginName
+        $manifest = Join-Path $tempRoot 'SHA256SUMS.txt'
+        Write-Host 'Скачиваем плагин из официального релиза проекта...'
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$pluginName" -OutFile $source
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile $manifest
+    }
+    Assert-PluginHash $source $manifest
+    $bdRoot = Join-Path $env:APPDATA 'BetterDiscord'
+    if (!$SkipBetterDiscord -and !(Test-Path -LiteralPath (Join-Path $bdRoot 'data\betterdiscord.asar'))) {
+        if ($NonInteractive) { throw 'Сначала установите BetterDiscord: https://betterdiscord.app/' }
+        Write-Host 'BetterDiscord не найден. Его официальный установщик потребует вашего участия и может перезапустить Discord.'
+        $answer = Read-Host 'Открыть официальный установщик BetterDiscord? [y/N]'
+        if ($answer -notmatch '^(y|yes|д|да)$') { throw 'Установите BetterDiscord и запустите этот скрипт снова.' }
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/BetterDiscord/Installer/releases/latest' -Headers @{ 'User-Agent'='RedflagAutoMute-Installer' }
+        $asset = @($release.assets | Where-Object { $_.name -eq 'BetterDiscord-Installer-Windows.exe' })
+        if ($asset.Count -ne 1 -or $asset[0].browser_download_url -notlike 'https://github.com/BetterDiscord/Installer/releases/download/*') { throw 'Не найден официальный установщик. Откройте https://betterdiscord.app/' }
+        $digest = [string]$asset[0].digest
+        if ($digest -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'GitHub не предоставил контрольную сумму установщика. Установите BetterDiscord вручную с https://betterdiscord.app/' }
+        $installer = Join-Path $tempRoot 'BetterDiscord-Installer-Windows.exe'
+        Invoke-WebRequest -UseBasicParsing -Uri $asset[0].browser_download_url -OutFile $installer
+        if ((Get-Sha256 $installer) -ne $digest.Substring(7)) { throw 'Неверная контрольная сумма установщика BetterDiscord.' }
+        Start-Process -FilePath $installer -Wait -WindowStyle Normal
+        if (!(Test-Path -LiteralPath (Join-Path $bdRoot 'data\betterdiscord.asar'))) { throw 'Завершите установку BetterDiscord и повторите запуск.' }
+    }
+    New-Item -ItemType Directory -Path $PluginDirectory -Force | Out-Null
+    $destination = Join-Path $PluginDirectory $pluginName
+    if ((Test-Path -LiteralPath $destination) -and (Get-Sha256 $destination) -ne (Get-Sha256 $source)) {
+        $backup = Join-Path (Split-Path -Parent $PluginDirectory) 'redflag-backups'
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        Copy-Item -LiteralPath $destination -Destination (Join-Path $backup ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N') + '.js.bak'))
+        Write-Host "Предыдущий файл сохранён: $backup"
+    }
+    $staged = Join-Path $PluginDirectory ('redflag-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    Copy-Item -LiteralPath $source -Destination $staged
+    Assert-PluginHash $staged $manifest
+    Move-Item -LiteralPath $staged -Destination $destination -Force
+    Write-Host 'Готово. Настройки и аккаунты сохранены.' -ForegroundColor Green
+    Write-Host '1. Discord → Настройки → BetterDiscord → Плагины → включите RedflagAutoMute.'
+    Write-Host '2. Шестерёнка плагина → Подключение → У меня есть приглашение.'
+    Write-Host '3. Вставьте код друга. Создайте свой аккаунт плагина или войдите.'
+    Write-Host 'Пароль Discord или Google не нужен. Discord не перезапускается этим скриптом.'
+} catch {
+    Write-Host ('Ошибка: ' + $_.Exception.Message) -ForegroundColor Red
     exit 1
 }
-
-# Создаем временную директорию для загрузки плагина
-$tempDir = Join-Path $env:TEMP "RedflagAutoMute_Install"
-if (Test-Path $tempDir) {
-    Remove-Item -Path $tempDir -Recurse -Force
-}
-New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-
-# Установка Git через winget
-Write-ColorOutput Green "Установка Git..."
-winget install --id Git.Git -e --source winget
-
-# Установка Node.js через winget
-Write-ColorOutput Green "Установка Node.js..."
-winget install --id OpenJS.NodeJS -e --source winget
-
-# Обновление переменных окружения
-Write-ColorOutput Green "Обновление переменных окружения..."
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-# Установка pnpm через PowerShell
-Write-ColorOutput Green "Установка pnpm..."
-iwr https://get.pnpm.io/install.ps1 -useb | iex
-
-# Создаем второй скрипт для продолжения установки
-$secondScript = @'
-# Функция для вывода цветного текста
-function Write-ColorOutput($ForegroundColor) {
-    $fc = $host.UI.RawUI.ForegroundColor
-    $host.UI.RawUI.ForegroundColor = $ForegroundColor
-    if ($args) {
-        Write-Output $args
-    }
-    $host.UI.RawUI.ForegroundColor = $fc
-}
-
-$tempDir = Join-Path $env:TEMP "RedflagAutoMute_Install"
-
-# Загрузка плагина из GitHub
-Write-ColorOutput Green "Загрузка плагина RedflagAutoMute..."
-Set-Location $tempDir
-git clone https://github.com/HilistonGit/Vencord_RedflagAutoMute.git
-if (-not $?) {
-    Write-ColorOutput Red "Ошибка при загрузке плагина!"
-    exit 1
-}
-
-# Клонирование Vencord
-Write-ColorOutput Green "Клонирование репозитория Vencord..."
-$vencordPath = "$env:USERPROFILE\Documents\Vencord"
-if (Test-Path $vencordPath) {
-    Remove-Item -Path $vencordPath -Recurse -Force
-}
-git clone https://github.com/Vendicated/Vencord.git $vencordPath
-
-# Копирование файлов плагина с сохранением структуры
-Write-ColorOutput Green "Установка плагина RedflagAutoMute..."
-$pluginPath = "$vencordPath\src\userplugins\RedflagAutoMute"
-New-Item -ItemType Directory -Path $pluginPath -Force | Out-Null
-Copy-Item "$tempDir\Vencord_RedflagAutoMute\src\userplugins\RedflagAutoMute\*" -Destination $pluginPath -Recurse -Force
-
-# Установка зависимостей Vencord
-Set-Location $vencordPath
-Write-ColorOutput Green "Установка зависимостей Vencord..."
-pnpm install
-
-# Установка Firebase
-Write-ColorOutput Green "Установка Firebase..."
-pnpm add -w firebase
-
-# Сборка Vencord
-Write-ColorOutput Green "Сборка Vencord..."
-pnpm build
-
-Write-ColorOutput Green "Установка Vencord..."
-pnpm inject
-
-# Очистка временных файлов
-Remove-Item -Path $tempDir -Recurse -Force
-
-# Перезапуск Discord
-Write-ColorOutput Green "Перезапуск Discord..."
-Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process
-Start-Process "$env:LOCALAPPDATA\Discord\Update.exe" -ArgumentList "--processStart Discord.exe"
-
-Write-ColorOutput Green "`nУстановка завершена!"
-Write-ColorOutput Yellow "`nДля настройки плагина:"
-Write-ColorOutput White "1. Откройте настройки Discord (Ctrl + ,)"
-Write-ColorOutput White "2. Перейдите в раздел Vencord -> Plugins"
-Write-ColorOutput White "3. Найдите RedflagAutoMute в списке плагинов"
-Write-ColorOutput White "4. Введите URL базы данных Firebase и ключ API"
-Write-ColorOutput White "5. Нажмите Save Settings"
-
-Write-ColorOutput Green "`nПриятного использования!"
-pause
-'@
-
-# Сохраняем второй скрипт во временный файл
-$secondScriptPath = Join-Path $tempDir "continue_install.ps1"
-Set-Content -Path $secondScriptPath -Value $secondScript
-
-# Запускаем второй скрипт в новом процессе PowerShell
-Write-ColorOutput Green "`nЗапуск второй части установки..."
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$secondScriptPath`"" -Wait 

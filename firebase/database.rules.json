@@ -1,0 +1,88 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "groups": {
+      "$group": {
+        ".read": "auth != null && (data.child('owner').val() === auth.uid || data.child('members').child(auth.uid).exists())",
+        ".write": "auth != null && ((!data.exists() && newData.child('owner').val() === auth.uid && newData.child('members').child(auth.uid).val() === 'owner') || (data.child('owner').val() === auth.uid && !newData.exists() && (!data.child('ownerSlot').exists() || newData.parent().parent().child('ownerSlots').child(auth.uid).child(data.child('ownerSlot').val()).val() !== $group)))",
+        ".validate": "newData.hasChildren(['name','owner','inviteSecret','createdAt','members']) && ((data.exists() && !data.child('ownerSlot').exists() && !newData.child('ownerSlot').exists()) || (newData.child('ownerSlot').isString() && newData.child('ownerSlot').val().matches(/^g[0-4]$/) && newData.parent().parent().child('ownerSlots').child(newData.child('owner').val()).child(newData.child('ownerSlot').val()).val() === $group))",
+        "name": {
+          ".write": "auth != null && data.parent().child('owner').val() === auth.uid",
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80"
+        },
+        "owner": {
+          ".validate": "newData.isString() && ((!data.exists() && newData.val() === auth.uid) || newData.val() === data.val())"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() === now) || newData.val() === data.val())"
+        },
+        "inviteSecret": {
+          ".write": "auth != null && data.parent().child('owner').val() === auth.uid",
+          ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{48}$/)"
+        },
+        "members": {
+          "$uid": {
+            ".write": "auth != null && $uid !== root.child('groups').child($group).child('owner').val() && ((!newData.exists() && (auth.uid === $uid || auth.uid === root.child('groups').child($group).child('owner').val())) || (auth.uid === $uid && newData.isString() && newData.val() === root.child('groups').child($group).child('inviteSecret').val()))",
+            ".validate": "newData.isString() && newData.val().length <= 48 && (root.child('groups').child($group).exists() || ($uid === auth.uid && newData.val() === 'owner'))"
+          }
+        },
+        "cards": {
+          "$target": {
+            ".validate": "$target.matches(/^[0-9]{17,20}$/) && newData.parent().parent().child('targetSlots').child($target).isString() && newData.parent().parent().child('slots').child(newData.parent().parent().child('targetSlots').child($target).val()).val() === $target",
+            "$author": {
+              ".write": "auth != null && auth.uid === $author && root.child('groups').child($group).child('members').child(auth.uid).exists()",
+              ".validate": "root.child('groups').child($group).exists() && newData.hasChildren(['type', 'updatedAt'])",
+              "type": {
+                ".validate": "newData.val() === 'red' || newData.val() === 'yellow'"
+              },
+              "updatedAt": {
+                ".validate": "newData.isNumber() && newData.val() === now"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
+        },
+        "$other": {
+          ".validate": false
+        },
+        "ownerSlot": {
+          ".write": "auth != null && data.parent().child('owner').val() === auth.uid && !data.exists()",
+          ".validate": "newData.isString() && newData.val().matches(/^g[0-4]$/)"
+        },
+        "targetSlots": {
+          "$target": {
+            ".write": "auth != null && root.child('groups').child($group).child('members').child(auth.uid).exists() && (newData.exists() || !newData.parent().parent().child('cards').child($target).exists())",
+            ".validate": "$target.matches(/^[0-9]{17,20}$/) && newData.isString() && newData.val().matches(/^s[0-4][0-9]{3}$/) && newData.parent().parent().child('slots').child(newData.val()).val() === $target"
+          }
+        },
+        "slots": {
+          "$slot": {
+            ".write": "auth != null && root.child('groups').child($group).child('members').child(auth.uid).exists() && (!data.exists() || newData.val() === data.val() || !newData.parent().parent().child('cards').child(data.val()).exists())",
+            ".validate": "$slot.matches(/^s[0-4][0-9]{3}$/) && newData.isString() && newData.val().matches(/^[0-9]{17,20}$/) && newData.parent().parent().child('targetSlots').child(newData.val()).val() === $slot"
+          }
+        }
+      }
+    },
+    "userGroups": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$group": {
+          ".write": "auth != null && ((auth.uid === $uid && (!newData.exists() || newData.parent().parent().parent().child('groups').child($group).child('members').child($uid).exists())) || (!newData.exists() && root.child('groups').child($group).child('owner').val() === auth.uid))",
+          ".validate": "newData.val() === true"
+        }
+      }
+    },
+    "ownerSlots": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$slot": {
+          ".write": "auth != null && auth.uid === $uid && (!data.exists() || newData.val() === data.val() || !newData.parent().parent().parent().child('groups').child(data.val()).exists())",
+          ".validate": "$slot.matches(/^g[0-4]$/) && newData.isString() && newData.val().matches(/^[a-f0-9]{48}$/) && newData.parent().parent().parent().child('groups').child(newData.val()).child('owner').val() === $uid && newData.parent().parent().parent().child('groups').child(newData.val()).child('ownerSlot').val() === $slot"
+        }
+      }
+    }
+  }
+}

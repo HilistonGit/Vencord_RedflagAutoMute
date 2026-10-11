@@ -1,0 +1,68 @@
+"use strict";
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { VideoController, NoteController, editNote, databaseFlags, BAN_NOTE, WARN_NOTE } = require("../src/features.cjs");
+const A = "111111111111111111", B = "222222222222222222";
+
+test("video restores previous auto state and preserves pre-existing manual disable", () => {
+    const states = { [A]: "AUTO_ENABLED", [B]: "DISABLED" };
+    const video = new VideoController({ state: id => states[id], disabled: id => states[id] === "DISABLED", set: (id, state) => states[id] = state });
+    video.reconcile(new Set([A, B])); assert.equal(states[A], "DISABLED"); assert.deepEqual(video.owned, { [A]: "AUTO_ENABLED" });
+    video.reconcile(new Set()); assert.equal(states[A], "AUTO_ENABLED"); assert.equal(states[B], "DISABLED");
+});
+test("video cleanup does not override a subsequent manual enable", () => {
+    let state = "NONE";
+    const video = new VideoController({ state: () => state, disabled: () => state === "DISABLED", set: (_, next) => state = next });
+    video.reconcile(new Set([A])); state = "MANUAL_ENABLED"; video.reconcile(new Set()); assert.equal(state, "MANUAL_ENABLED");
+});
+test("notes preserve existing text, replace only their suffix, and respect the length limit", () => {
+    const original = "My personal note\nWith another line  ";
+    const marked = editNote(original, null, BAN_NOTE).text;
+    assert.equal(editNote(marked, BAN_NOTE, null).text, original);
+    assert.equal(editNote(marked, BAN_NOTE, WARN_NOTE).text, `${original}\n${WARN_NOTE}`);
+    assert.equal(editNote(marked, null, BAN_NOTE).text, marked);
+    assert.equal(editNote("x".repeat(256), null, BAN_NOTE).skipped, true);
+    assert.equal(editNote(`${BAN_NOTE}\nUser moved it`, BAN_NOTE, null).skipped, true);
+});
+test("notes use latest desired state after a delayed read; revocation preserves fresh user edits", async () => {
+    let note = "personal", resolve;
+    const notes = new NoteController({ read: () => new Promise(r => resolve = r), write: async (_, text) => note = text });
+    const pending = notes.reconcile({[A]:BAN_NOTE}, 100);
+    await notes.reconcile({}, 101); resolve(note); await pending;
+    assert.equal(note, "personal");
+    notes.adapter.read = async () => note;
+    await notes.reconcile({[A]:BAN_NOTE}, 2200); assert.equal(note, `personal\n${BAN_NOTE}`);
+    note = `personal edited\n${BAN_NOTE}`;
+    await notes.reconcile({}, 4300); assert.equal(note, "personal edited"); assert.deepEqual(notes.owned, {});
+});
+test("failed note writes do not lose the previous marker or duplicate on retry", async () => {
+    let note = `personal\n${WARN_NOTE}`, fail = true;
+    const notes = new NoteController({read: async () => note, write: async (_, text) => {if(fail) throw new Error("offline"); note=text;}}, {[A]:WARN_NOTE});
+    await notes.reconcile({[A]:BAN_NOTE}, 100); assert.equal(notes.owned[A], WARN_NOTE);
+    fail = false; await notes.reconcile({[A]:BAN_NOTE}, 30200);
+    assert.equal(note, `personal\n${BAN_NOTE}`);
+});
+test("account invalidation prevents note writes after a pending read", async () => {
+    let valid = true, resolve, writes = 0;
+    const notes = new NoteController({read: () => new Promise(r => resolve=r), write:async()=>writes++}, {}, ()=>{}, ()=>valid);
+    const pending=notes.reconcile({[A]:BAN_NOTE}); valid=false; resolve(""); await pending; assert.equal(writes,0);
+});
+test("yellow votes are counted inside each group, database flags do not inherit personal mute", () => {
+    const group = who => ({members:{[who]:true}, cards:{[A]:{[who]:{type:"yellow"}}}});
+    let flags=databaseFlags([group("one"),group("two")], {overrides:{[B]:"mute"}});
+    assert.equal(flags.blocked.size,0); assert.match(flags.notes[A], /Предупреждение/); assert.equal(flags.notes[B],undefined);
+    flags=databaseFlags([group("one")], {includeYellow:true}); assert.ok(flags.blocked.has(A)); assert.match(flags.notes[A], /БАН/);
+});
+test("database note identifies the group and the vote that reaches the ban threshold", () => {
+    const first=Date.UTC(2026,0,1), second=Date.UTC(2026,0,2), third=Date.UTC(2026,0,3);
+    const group={id:"group-a",members:{one:true,two:true},cards:{[A]:{one:{type:"yellow",updatedAt:first},two:{type:"yellow",updatedAt:second},removed:{type:"red",updatedAt:first}}}};
+    let flags=databaseFlags([group],{});
+    assert.match(flags.notes[A],new RegExp(`ID: group-a/${A}`));
+    assert.match(flags.notes[A],/Забанен: 2026-01-02 00:00 UTC/);
+    const other={id:"group-b",members:{one:true},cards:{[A]:{one:{type:"red",updatedAt:third}}}};
+    assert.equal(databaseFlags([other,group],{}).notes[A],flags.notes[A]);
+    delete group.cards[A].two;
+    assert.match(databaseFlags([group,other],{}).notes[A],/ID: group-b\//);
+    assert.match(databaseFlags([group],{includeYellow:true}).notes[A],/Забанен: 2026-01-01/);
+    assert.equal(databaseFlags([group],{},A).notes[A],undefined);
+});

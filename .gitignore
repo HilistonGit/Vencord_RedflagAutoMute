@@ -1,0 +1,15 @@
+node_modules/
+firebase-debug.log
+database-debug.log
+.firebase/
+*.local.json
+evidence/
+cloud-smoke-result.json
+installers/
+
+publish/
+Vencord/
+RedflagAutoMute_old/
+*.rar
+dist/*.zip
+dist/release-package/

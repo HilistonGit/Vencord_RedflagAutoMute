@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title desc">
+<title id="title">RedflagAutoMute — муть токсичных людей вместе с друзьями</title><desc id="desc">Один красный или два жёлтых флажка от разных участников отключают голос и видео у участников вашей группы.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#20222c"/><stop offset="1" stop-color="#111216"/></linearGradient><linearGradient id="red" x2="1" y2="1"><stop stop-color="#ff6970"/><stop offset="1" stop-color="#ed4245"/></linearGradient></defs>
+<rect width="1200" height="480" rx="24" fill="url(#bg)"/><circle cx="1140" cy="-20" r="270" fill="#ed4245" opacity=".05"/>
+<g font-family="Arial,sans-serif"><text x="64" y="68" fill="#ed4245" font-size="15" font-weight="700" letter-spacing="3">REDFLAG AUTOMUTE / 2.0.0</text>
+<text x="64" y="133" fill="#f5f5f7" font-size="45" font-weight="700">Муть токсичных людей</text><text x="64" y="187" fill="#f5f5f7" font-size="45" font-weight="700">вместе с друзьями.</text>
+<text x="65" y="230" fill="#a2a7b5" font-size="20">Общие списки. Свои правила. Спокойный голосовой чат.</text>
+<rect x="64" y="281" width="315" height="133" rx="14" fill="#2b2d36" stroke="#41434e"/><path d="M90 375V310 M91 312 Q108 302 126 314V342 Q108 330 91 340" fill="#ed4245" stroke="#ed4245" stroke-width="3"/>
+<text x="150" y="329" fill="#fff" font-size="21" font-weight="700">Отметь пользователя</text><text x="150" y="360" fill="#a2a7b5" font-size="17">Красный или жёлтый</text><text x="150" y="385" fill="#a2a7b5" font-size="17">флажок в меню Discord</text>
+<path d="M390 347h27m-9-8 9 8-9 8" stroke="#707687" stroke-width="2" fill="none"/>
+<rect x="430" y="281" width="305" height="133" rx="14" fill="#2b2d36" stroke="#41434e"/><circle cx="473" cy="335" r="13" fill="#818cf8"/><circle cx="501" cy="342" r="10" fill="#818cf8" opacity=".55"/><path d="M453 371q0-27 20-27t20 27" fill="#818cf8"/>
+<text x="523" y="329" fill="#fff" font-size="21" font-weight="700">Список у друзей</text><text x="523" y="360" fill="#a2a7b5" font-size="17">Только ваши группы</text><text x="523" y="385" fill="#a2a7b5" font-size="17">Без повторов</text>
+<path d="M747 347h27m-9-8 9 8-9 8" stroke="#707687" stroke-width="2" fill="none"/>
+<rect x="786" y="281" width="350" height="133" rx="14" fill="#302329" stroke="#ed4245" stroke-opacity=".6"/><rect x="817" y="314" width="18" height="40" rx="9" fill="#ed4245"/><path d="M810 341v6q0 18 16 18t16-18v-6m-16 24v12m-20-3 40-63" fill="none" stroke="#ed4245" stroke-width="3"/>
+<text x="868" y="329" fill="#fff" font-size="21" font-weight="700">Тише в звонке</text><text x="868" y="360" fill="#c3a9b1" font-size="17">Голос и вебкамера</text><text x="868" y="385" fill="#c3a9b1" font-size="17">отключаются у вас</text>
+</g></svg>

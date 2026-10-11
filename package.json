@@ -1,0 +1,16 @@
+{
+  "name": "redflag-auto-mute",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Муть токсичных людей вместе с друзьями.",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "audit:release": "node scripts/audit-release.cjs",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check src/core.cjs && node --check src/firebase.cjs && node --check src/plugin.cjs && npm test && npm run build",
+    "package": "npm run check && npm run audit:release && node scripts/package.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
