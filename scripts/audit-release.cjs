@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const root = path.resolve(__dirname, "..");
-const files = ["README.md", "package.json", "firebase.public.json", "firebase.json", ".gitignore", ".gitattributes", "Install.cmd", "install.ps1", "dist/RedflagAutoMute.plugin.js"];
+const files = ["README.md", "CHANGELOG.md", "package.json", "firebase.public.json", "firebase.json", ".gitignore", ".gitattributes", "Install.cmd", "install.ps1", "dist/RedflagAutoMute.plugin.js"];
 function walk(dir) {for(const item of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){const file=`${dir}/${item.name}`;if(item.isDirectory())walk(file);else files.push(file);}}
 for (const dir of ["src", "scripts", "test", "firebase", "docs"]) walk(dir);
 const forbidden = [];

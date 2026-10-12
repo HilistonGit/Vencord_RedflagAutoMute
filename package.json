@@ -1,6 +1,6 @@
 {
   "name": "redflag-auto-mute",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "description": "Муть токсичных людей вместе с друзьями.",
   "scripts": {

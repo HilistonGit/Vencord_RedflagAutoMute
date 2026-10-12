@@ -28,7 +28,7 @@ module.exports = class RedflagAutoMute {
         this.accounts = BdApi.Data.load(NAME, "accounts") || {};
         this.status = "Настройте Firebase и войдите";
         this.versions = {};
-        BdApi.DOM?.addStyle(NAME, '.rfam-blocked { outline: 3px solid #ed4245 !important; outline-offset: -3px !important; } [data-call-tile].rfam-blocked::after { content: ""; position: absolute; inset: 0; z-index: 100; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 0 3px #ed4245; } img.rfam-blocked { border-radius: 50%; outline-offset: 1px !important; }');
+        BdApi.DOM?.addStyle(NAME, '.rfam-blocked { outline: 3px solid #ed4245 !important; outline-offset: -3px !important; } [class*="voiceUser_"].rfam-blocked { border-radius: var(--radius-sm, 6px) !important; } [data-call-tile].rfam-blocked::after { content: ""; position: absolute; inset: 0; z-index: 100; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 0 3px #ed4245; } img.rfam-blocked { border-radius: 50%; outline-offset: 1px !important; }');
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
