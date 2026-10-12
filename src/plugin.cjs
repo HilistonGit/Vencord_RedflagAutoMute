@@ -32,7 +32,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
-        try { this.runtimeHealth = createRuntimeHealth("2.0.4"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
+        try { this.runtimeHealth = createRuntimeHealth("2.0.5"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }

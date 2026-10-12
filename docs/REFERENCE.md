@@ -1,4 +1,4 @@
-# Подробный справочник RedflagAutoMute 2.0.4
+# Подробный справочник RedflagAutoMute 2.0.5
 
 [← Установка и краткое руководство](../README.md)
 
@@ -136,7 +136,7 @@ npm run check
 
 Проверка серверных лимитов на синтетических аккаунтах: `node scripts/quota-smoke.cjs --run` (после cloud-smoke). Создаёт и удаляет временные группы, проверяет 5000/5001 записей и попытки обхода правил прямыми REST-запросами.
 
-## Установщик Windows 2.0.4
+## Установщик Windows 2.0.5
 
 Полный ZIP обязателен: install.ps1 использует scripts/installer-core.ps1 и локальные dist + SHA256SUMS.txt. Последний стабильный CLI BetterDiscord скачивается из официального GitHub-релиза; SHA-256 архивов x64/ARM64 сверяется с digest GitHub. Проверяется загрузчик в последней app-* версии Discord, сохранённый betterdiscord.app.asar, package.json и наличие runtime. Это проверка файлов, не тест запуска Discord.
 
