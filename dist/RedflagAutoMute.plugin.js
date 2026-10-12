@@ -700,6 +700,7 @@ const CSS = `
 .rf-settings hr{border:0;border-top:1px solid var(--background-modifier-accent,#3f4147);margin:20px 0}.rf-settings p{margin:6px 0 16px;color:var(--text-muted)}.rf-settings nav{display:flex;gap:4px;border-bottom:1px solid var(--background-modifier-accent,rgba(128,128,128,.25));margin:20px 0;padding-bottom:8px;flex-wrap:wrap}
 .rf-settings button:not(.bd-button){font:inherit;cursor:pointer;border:0;border-radius:4px;padding:9px 14px;background:var(--button-secondary-background,#4e5058);color:var(--button-secondary-text,#fff)}
 .rf-settings button:not(.bd-button):hover{background:var(--button-secondary-background-hover,#6d6f78)}.rf-settings button:disabled{opacity:.5;cursor:default}
+.rf-settings details{margin:12px 0}.rf-settings summary{cursor:pointer;color:var(--header-primary);padding:8px 0;font-weight:600}
 .rf-settings .primary{background:var(--brand-500,#5865f2);color:white}.rf-settings .danger{color:var(--text-danger,#ed4245)}
 .rf-settings nav button:not(.bd-button){background:transparent;color:var(--interactive-normal)}.rf-settings nav button:not(.bd-button)[aria-selected=true]{background:var(--background-modifier-selected,rgba(255,255,255,.12));color:var(--interactive-active,#fff)}
 .rf-settings .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.rf-settings .spread{justify-content:space-between}.rf-settings .stack{display:grid;gap:12px}
@@ -741,7 +742,7 @@ function settingsPanel(plugin, parseInvite) {
         const card=(...children)=>h("section",{className:"card"},...children);
         const row=(...children)=>h("div",{className:"row"},...children);
         const field=(key,label,type="text",hint="")=>h("label",{className:"field"},label,h("input",{type,value:form[key]||"",autoComplete:type==="password"?"new-password":"off",onChange:e=>setForm({...form,[key]:e.target.value}),onKeyDown:e=>e.stopPropagation(),placeholder:hint}));
-        const toggle=(label,description,value,change)=>h("label",{className:"switch"},h("span",null,label,h("small",null,description)),BdApi.Components?.SwitchInput ? h(BdApi.Components.SwitchInput,{value:!!value,disabled:busy,onChange:v=>{change(v);render();}}) : h("input",{className:"rf-fallback-switch",type:"checkbox",role:"switch",checked:!!value,onChange:e=>{change(e.target.checked);render();}}));
+        const toggle=(label,description,value,change)=>h("label",{className:"switch"},h("span",null,label,h("small",null,description)),BdApi.Components?.SwitchInput ? h(BdApi.Components.SwitchInput,{value:!!value,disabled:busy,onChange:v=>{change(v);render();}}) : h("input",{className:"rf-fallback-switch",type:"checkbox",role:"switch",disabled:busy,checked:!!value,onChange:e=>{change(e.target.checked);render();}}));
         const go=(next)=>{setFlow(next);setForm({});setTransfer(null);setMessage(null);};
         const saveExport=async(data,name)=>{ if(!globalThis.DiscordNative?.fileManager?.saveWithDialog)throw Error("Диалог сохранения недоступен. Скопируйте JSON из поля ниже."); await DiscordNative.fileManager.saveWithDialog(new TextEncoder().encode(data),name); };
         const join=async data=>{
@@ -764,7 +765,61 @@ function settingsPanel(plugin, parseInvite) {
                     !snapshot?text("Данные пока не загружены. Обновите список или проверьте подключение."):h("div",null,
                         row(btn("Пригласить друга",()=>go(flow==="share"?null:"share")),btn("Участники",()=>go(flow==="members"?null:"members")),btn("Импорт / экспорт",()=>go(flow==="transfer"?null:"transfer"))),
                         flow==="share"?card(h("h3",null,"Приглашение в группу"),text("Передайте этот код другу. Он откроет «Подключение → У меня есть приглашение». Код даёт доступ к группе — не публикуйте его."),h("textarea",{readOnly:true,"aria-label":"Код приглашения",value:makeInvite(plugin.client.config,group.id,snapshot.inviteSecret),onFocus:e=>e.target.select()}),owner?btn("Заменить код приглашения",async()=>{await plugin.client.rotateInvite(group.id);await plugin.sync();}):null):null,
-                        flow==="transfer"?card(h("h3",null,"Перенос списка"),text("Голосовые мьюты общие для всех серверов в этом Discord-клиенте. Дополнительно можно включить громкость 0% и блокировки аккаунтов. Импорт добавит красные флажки от вашего имени: они будут действовать у всех участников группы."),toggle("Включить громкость 0%","Пользователи, которым вы убрали звук ползунком.",exportOptions.includeZeroVolume,v=>{setExportOptions({...exportOptions,includeZeroVolume:v});setTransfer(null);}),toggle("Включить заблокированных","Аккаунты из списка блокировок Discord.",exportOptions.includeBlocked,v=>{setExportOptions({...exportOptions,includeBlocked:v});setTransfer(null);}),row(btn("Выгрузить мои мьюты Discord",()=>{const result=plugin.exportMutes(undefined,exportOptions);setTransfer({...result,mode:"export"});}),btn("Выгрузить баны группы",()=>{const result=plugin.exportMutes(group.id);setTransfer({...result,mode:"export"});})),transfer?.mode==="export"?h("div",null,transfer.counts?text(`Мьюты: ${transfer.counts.muted}; громкость 0%: ${transfer.counts.zero}; блокировки: ${transfer.counts.blocked}. Пересечения удалены.`):null,text(`В списке: ${transfer.ids.length}. Файл содержит только Discord ID, без ключей и приглашений.`),h("textarea",{readOnly:true,value:transfer.text,"aria-label":"Экспортированный список",onFocus:e=>e.target.select()}),btn("Сохранить JSON-файл",()=>saveExport(transfer.text,"RedflagAutoMute-mutes.json"))):null,h("label",{className:"field"},"Импорт из JSON / TXT (до 2 МБ)",h("input",{type:"file",accept:".json,.txt",disabled:busy,onChange:e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(file.size>2*1024*1024)throw Error("Файл больше 2 МБ");const text=await file.text();setForm({...form,importText:text});setTransfer(null);});}})),h("textarea",{value:form.importText||"","aria-label":"Список для импорта",placeholder:"Вставьте JSON или Discord ID, по одному на строку",onChange:e=>{setForm({...form,importText:e.target.value});setTransfer(null);},onKeyDown:e=>e.stopPropagation()}),btn("Проверить список",()=>{const ids=parseImport(form.importText||"").filter(id=>id!==plugin.accountId);if(!ids.length)throw Error("Нет пользователей для импорта");const added=ids.filter(id=>!snapshot.cards?.[id]).length;if(Object.keys(snapshot.cards||{}).length+added>5000)throw Error("После импорта будет больше 5000 записей в группе.");setTransfer({mode:"import",ids,added});}),transfer?.mode==="import"?h("div",null,text(`Будет добавлено красных флажков: ${transfer.ids.length}. Новых записей: ${transfer.added}. Остальные карточки сохранятся. Дата блокировки — время импорта.`),btn("Подтвердить импорт красных флажков",async()=>{const count=await plugin.importMutes(group.id,transfer.ids);setTransfer(null);setForm({});BdApi.UI.showToast(`Импортировано: ${count}`,{type:"success"});},"danger")):null):null,
+                        flow==="transfer"?card(
+                            h("h3",null,"Мои мьюты → в эту группу"),
+                            text(`Перенесите сохранённые мьюты Discord в «${group.name}». Они станут вашими красными флажками для всей группы. Повторы объединятся автоматически.`),
+                            h("details",null,h("summary",null,"Что включить в список"),
+                                text("Обычные мьюты включены всегда."),
+                                toggle("Громкость 0%","Также добавить тех, кому вы убрали звук ползунком.",exportOptions.includeZeroVolume,v=>{setExportOptions({...exportOptions,includeZeroVolume:v});setTransfer(null);}),
+                                toggle("Заблокированные аккаунты","Также добавить пользователей из вашего списка блокировок.",exportOptions.includeBlocked,v=>{setExportOptions({...exportOptions,includeBlocked:v});setTransfer(null);})),
+                            btn("Добавить мои мьюты в группу",async()=>{
+                                setTransfer(null);
+                                const result=plugin.exportMutes(undefined,exportOptions);
+                                const count=await plugin.importMutes(group.id,result.ids);
+                                if(epoch!==plugin.epoch || !live.current || count===undefined)return;
+                                setTransfer({mode:"done",count});
+                            },"primary"),
+                            transfer?.mode==="done"?h("div",{className:"notice",role:"status"},`Готово! Обработано пользователей: ${transfer.count}. Список группы обновлён, повторы объединены.`):null,
+                            h("hr",null),
+                            h("details",null,h("summary",null,"Загрузить список из файла"),
+                                text("Выберите JSON / TXT или вставьте список Discord ID. Перед добавлением покажем количество пользователей."),
+                                h("label",{className:"field"},"Файл со списком (до 2 МБ)",h("input",{type:"file",accept:".json,.txt",disabled:busy,onChange:e=>{
+                                    const file=e.target.files?.[0];
+                                    if(file)void run(async()=>{
+                                        if(file.size>2*1024*1024)throw Error("Файл больше 2 МБ");
+                                        const value=await file.text();
+                                        if(epoch!==plugin.epoch || !live.current)return;
+                                        setForm({...form,importText:value});setTransfer(null);
+                                    });
+                                }})),
+                                h("textarea",{value:form.importText||"",disabled:busy,"aria-label":"Список для импорта",placeholder:"Или вставьте JSON / Discord ID сюда",onChange:e=>{setForm({...form,importText:e.target.value});setTransfer(null);},onKeyDown:e=>e.stopPropagation()}),
+                                btn("Проверить список",()=>{
+                                    const ids=parseImport(form.importText||"").filter(id=>id!==plugin.accountId);
+                                    if(!ids.length)throw Error("Нет пользователей для импорта");
+                                    const added=ids.filter(id=>!snapshot.cards?.[id]).length;
+                                    if(Object.keys(snapshot.cards||{}).length+added>5000)throw Error("После импорта будет больше 5000 записей в группе.");
+                                    setTransfer({mode:"import",ids,added});
+                                }),
+                                transfer?.mode==="import"?h("div",null,
+                                    text(`Пользователей: ${transfer.ids.length}. Новых в группе: ${transfer.added}. Будут добавлены ваши красные флажки для всей группы.`),
+                                    btn("Добавить в группу",async()=>{
+                                        const count=await plugin.importMutes(group.id,transfer.ids);
+                                        if(epoch!==plugin.epoch || !live.current || count===undefined)return;
+                                        setTransfer({mode:"done",count});setForm({});
+                                    },"primary")):null),
+                            h("details",null,h("summary",null,"Сохранить список в файл"),
+                                text("Для друга или резервной копии. Файл содержит только Discord ID."),
+                                row(btn("Мои мьюты Discord",async()=>{
+                                    const result=plugin.exportMutes(undefined,exportOptions);
+                                    setTransfer({...result,mode:"export"});
+                                    await saveExport(result.text,"RedflagAutoMute-mutes.json");
+                                }),btn("Мьюты этой группы",async()=>{
+                                    const result=plugin.exportMutes(group.id);
+                                    setTransfer({...result,mode:"export"});
+                                    await saveExport(result.text,"RedflagAutoMute-group.json");
+                                })),
+                                transfer?.mode==="export"?h("details",null,h("summary",null,`Скопировать список · ${transfer.ids.length}`),h("textarea",{readOnly:true,value:transfer.text,"aria-label":"Экспортированный список",onFocus:e=>e.target.select()})):null)
+                        ):null,
                         flow==="members"?card(h("h3",null,`Участники · ${Object.keys(snapshot.members||{}).length}`),text("Это ID аккаунтов плагина, не Discord ID."),...Object.keys(snapshot.members||{}).map(uid=>h("div",{className:"row spread",key:uid},h("code",null,uid===account.session.uid?`${uid} · вы`:uid),owner&&uid!==snapshot.owner?btn("Исключить",async()=>{await plugin.client.removeMember(group.id,uid,true);await plugin.sync();},"danger"):h("small",null,uid===snapshot.owner?"Владелец":"Участник")))):null,
                         h("h3",{style:{marginTop:24}},`Пользователи в базе · ${Object.keys(snapshot.cards||{}).length} / 5000`),text("Чтобы добавить человека: ПКМ по нему в Discord → Redflag → название группы → флажок."),
                         field("search","Найти пользователя по Discord ID","text","Необязательно"),

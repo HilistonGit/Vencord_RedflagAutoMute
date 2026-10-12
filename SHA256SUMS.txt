@@ -1,1 +1,1 @@
-a1a9d86473d90c971d6b14ebaabe8fc776a7e61bec0aced85154e918a63e0dc7  dist/RedflagAutoMute.plugin.js
+443a851b5cfe3b8b0b4ed21652c49b815ba6b3ad0abb5620fa8287a6227c3ec0  dist/RedflagAutoMute.plugin.js
