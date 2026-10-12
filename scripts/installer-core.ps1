@@ -1,5 +1,5 @@
 ﻿# Shared installer and maintenance logic. Windows PowerShell 5.1.
-$RfamVersion = '2.0.3'
+$RfamVersion = '2.0.4'
 $RfamPlugin = 'RedflagAutoMute.plugin.js'
 function Get-RfamHash([string]$File) {
     $stream = [IO.File]::OpenRead($File); $sha = [Security.Cryptography.SHA256]::Create()

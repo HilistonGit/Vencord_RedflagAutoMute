@@ -1,4 +1,4 @@
-# RedflagAutoMute 2.0.3
+# RedflagAutoMute 2.0.4
 
 **Муть токсичных людей вместе с друзьями.**
 
@@ -6,7 +6,7 @@
 
 Общий список нежелательных собеседников для вашей компании в Discord. Один участник выдаёт флажок — плагин применяет правила группы у остальных. Голос и вебкамера отключаются **локально, только для вас**. Это не серверный бан и не скрытие текстовых сообщений.
 
-**[Скачать установочный ZIP для Windows](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.3/RedflagAutoMute-2.0.3.zip)** · [Все файлы релиза](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/tag/v2.0.3) · [Подробный справочник](docs/REFERENCE.md)
+**[Скачать установочный ZIP для Windows](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.4/RedflagAutoMute-2.0.4.zip)** · [Все файлы релиза](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/tag/v2.0.4) · [Подробный справочник](docs/REFERENCE.md)
 
 ## Начать за три шага
 
@@ -96,7 +96,7 @@ npm run package        # ZIP для Windows, контрольная сумма
 
 Исходники: `src/`. Готовый плагин: `dist/RedflagAutoMute.plugin.js`. [Архитектура, правила доступа и ручные проверки](docs/REFERENCE.md).
 
-Репозиторий сохранил прежнее имя `Vencord_RedflagAutoMute`, но версия **2.0.3 работает на BetterDiscord**. Прежний прототип доступен в истории Git.
+Репозиторий сохранил прежнее имя `Vencord_RedflagAutoMute`, но версия **2.0.4 работает на BetterDiscord**. Прежний прототип доступен в истории Git.
 
 История выпусков: [CHANGELOG.md](CHANGELOG.md).
 

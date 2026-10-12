@@ -1,7 +1,7 @@
 /**
  * @name RedflagAutoMute
  * @author RedflagAutoMute contributors
- * @version 2.0.3
+ * @version 2.0.4
  * @description Муть токсичных людей вместе с друзьями.
  */
 "use strict";
@@ -633,7 +633,23 @@ class NoteController {
 }
 
 class Highlights {
-    constructor(api, doc) { this.api = api; this.doc = doc; this.marked = new Set(); }
+    constructor(api, doc) {
+        this.api = api; this.doc = doc; this.marked = new Set(); this.blocked = new Set();
+        this.selector = '[data-call-tile], [class*="voiceUser_"], img[src*="/avatars/"]';
+        const Observer = doc.defaultView?.MutationObserver;
+        this.observer = Observer ? new Observer(records => {
+            // React can replace className or the whole tile on hover. Repair before
+            // the next paint, rather than waiting for the one-second voice tick.
+            if (records.some(r => r.type === "childList" || this.marked.has(r.target) || r.target.matches?.(this.selector))) this.refresh();
+        }) : null;
+        this.stopped = false;
+    }
+    observe() {
+        if (!this.stopped && this.blocked.size && this.doc.body) this.observer?.observe(this.doc.body, {
+            subtree: true, childList: true, attributes: true,
+            attributeFilter: ["class", "src", "data-call-tile"]
+        });
+    }
     userId(element) {
         const avatarId = element.getAttribute("src")?.match(/\/avatars\/(\d{17,20})\//)?.[1];
         if (avatarId) return avatarId;
@@ -645,17 +661,29 @@ class Highlights {
         }
     }
     update(blocked) {
+        this.blocked = new Set(blocked);
+        this.refresh();
+    }
+    refresh() {
+        if (this.stopped) return;
+        // Do not observe our own class mutations and create a feedback loop.
+        this.observer?.disconnect();
         const next = new Set();
-        if (blocked.size) for (const element of this.doc.querySelectorAll('[data-call-tile], [class*="voiceUser_"], img[src*="/avatars/"]')) {
+        if (this.blocked.size) for (const element of this.doc.querySelectorAll(this.selector)) {
             try {
-                if (!blocked.has(this.userId(element))) continue;
-                element.classList.add("rfam-blocked"); next.add(element);
+                if (!this.blocked.has(this.userId(element))) continue;
+                if (!element.classList.contains("rfam-blocked")) element.classList.add("rfam-blocked");
+                next.add(element);
             } catch { /* Discord may detach a node during rendering. */ }
         }
         for (const element of this.marked) if (!next.has(element)) element.classList.remove("rfam-blocked");
         this.marked = next;
+        this.observe();
     }
-    stop() { for (const e of this.marked) e.classList.remove("rfam-blocked"); this.marked.clear(); }
+    stop() {
+        this.stopped = true; this.observer?.disconnect(); this.blocked.clear();
+        for (const e of this.marked) e.classList.remove("rfam-blocked"); this.marked.clear();
+    }
 }
 
 module.exports = { databaseFlags, VideoController, NoteController, Highlights, editNote, BAN_NOTE, WARN_NOTE };
@@ -803,7 +831,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
-        try { this.runtimeHealth = createRuntimeHealth("2.0.3"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
+        try { this.runtimeHealth = createRuntimeHealth("2.0.4"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }

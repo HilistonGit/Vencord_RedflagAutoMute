@@ -79,3 +79,22 @@ test('new card takes priority over initial backlog and failed notes do not block
  await notes.reconcile({[A]:BAN_NOTE,[B]:BAN_NOTE},2200);
  assert.equal(reads.at(-1),B);assert.equal(notes.owned[B],BAN_NOTE);
 });
+
+
+test("highlights repair React hover class replacement and replaced tiles without a timer; stop disconnects", () => {
+    const {Highlights}=require('../src/features.cjs');let observer, nodes=[];
+    class Observer {
+        constructor(callback){this.callback=callback;observer=this;this.active=false;}
+        observe(){this.active=true;}
+        disconnect(){this.active=false;}
+        emit(record){if(this.active)this.callback([record]);}
+    }
+    const tile=id=>{const classes=new Set();return {id,getAttribute:()=>null,matches:()=>true,classList:{contains:c=>classes.has(c),add:c=>{assert.equal(observer.active,false,'self mutations observed');classes.add(c);},remove:c=>classes.delete(c)}}};
+    const doc={body:{},defaultView:{MutationObserver:Observer},querySelectorAll:()=>nodes};
+    const highlights=new Highlights({ReactUtils:{getInternalInstance:e=>({memoizedProps:{userId:e.id}})}},doc);
+    const first=tile(A);nodes=[first];highlights.update(new Set([A]));assert.ok(first.classList.contains('rfam-blocked'));
+    first.classList.remove('rfam-blocked');observer.emit({type:'attributes',target:first});assert.ok(first.classList.contains('rfam-blocked'));
+    const replacement=tile(A);nodes=[replacement];observer.emit({type:'childList',target:doc.body});assert.ok(replacement.classList.contains('rfam-blocked'));assert.ok(!first.classList.contains('rfam-blocked'));
+    replacement.id=B;observer.emit({type:'attributes',target:replacement});assert.ok(!replacement.classList.contains('rfam-blocked'));
+    highlights.stop();assert.equal(observer.active,false);replacement.id=A;observer.emit({type:'childList',target:doc.body});assert.ok(!replacement.classList.contains('rfam-blocked'));
+});
