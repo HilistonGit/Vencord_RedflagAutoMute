@@ -1,7 +1,7 @@
 /**
  * @name RedflagAutoMute
  * @author RedflagAutoMute contributors
- * @version 2.0.2
+ * @version 2.0.3
  * @description Муть токсичных людей вместе с друзьями.
  */
 "use strict";
@@ -501,11 +501,11 @@ class RuntimeHealth {
         this.io.renameSync(temporary,this.file);this.next=at+60000;
     }
 }
-function createRuntimeHealth() {
+function createRuntimeHealth(pluginVersion) {
     const app=globalThis.DiscordNative?.app;
     const channel=globalThis.GLOBAL_ENV?.RELEASE_CHANNEL || app?.getReleaseChannel?.();
     const folder=globalThis.BdApi?.Plugins?.folder;
-    return new RuntimeHealth(folder,{channel,discordVersion:app?.getVersion?.() || ''});
+    return new RuntimeHealth(folder,{channel,pluginVersion,discordVersion:app?.getVersion?.() || ''});
 }
 module.exports={RuntimeHealth,createRuntimeHealth};
 
@@ -803,7 +803,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
-        try { this.runtimeHealth = createRuntimeHealth(); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
+        try { this.runtimeHealth = createRuntimeHealth("2.0.3"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }

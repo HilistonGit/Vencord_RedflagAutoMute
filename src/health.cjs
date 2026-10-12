@@ -14,10 +14,10 @@ class RuntimeHealth {
         this.io.renameSync(temporary,this.file);this.next=at+60000;
     }
 }
-function createRuntimeHealth() {
+function createRuntimeHealth(pluginVersion) {
     const app=globalThis.DiscordNative?.app;
     const channel=globalThis.GLOBAL_ENV?.RELEASE_CHANNEL || app?.getReleaseChannel?.();
     const folder=globalThis.BdApi?.Plugins?.folder;
-    return new RuntimeHealth(folder,{channel,discordVersion:app?.getVersion?.() || ''});
+    return new RuntimeHealth(folder,{channel,pluginVersion,discordVersion:app?.getVersion?.() || ''});
 }
 module.exports={RuntimeHealth,createRuntimeHealth};

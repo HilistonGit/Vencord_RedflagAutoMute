@@ -1,5 +1,5 @@
 ﻿# Shared installer and maintenance logic. Windows PowerShell 5.1.
-$RfamVersion = '2.0.2'
+$RfamVersion = '2.0.3'
 $RfamPlugin = 'RedflagAutoMute.plugin.js'
 function Get-RfamHash([string]$File) {
     $stream = [IO.File]::OpenRead($File); $sha = [Security.Cryptography.SHA256]::Create()
@@ -144,19 +144,27 @@ function Register-RfamTask([string]$Directory) {
     $task.Settings.MultipleInstances=2; $task.Settings.ExecutionTimeLimit='PT10M'
     $trigger=$task.Triggers.Create(1); $trigger.StartBoundary=(Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss'); $trigger.Repetition.Interval='PT2M'; $trigger.Enabled=$true
     $login=$task.Triggers.Create(9); $login.UserId=$sid; $login.Enabled=$true; $login.Delay='PT1M'
-    $action=$task.Actions.Create(0); $action.Path=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $action.Arguments='-NoProfile -STA -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $Directory 'scripts\maintenance.ps1')+'"'
+    $action=$task.Actions.Create(0); $action.Path=Join-Path $Directory 'scripts\maintenance-launcher.exe'
+    $action.Arguments=''
     $action.WorkingDirectory=$Directory
     $service.GetFolder('\').RegisterTaskDefinition((Get-RfamTaskName),$task,6,$sid,$null,3) | Out-Null
 }
 function Enable-RfamMaintenance([string]$PackageRoot,[string]$Directory,[string]$PluginDirectory,[string]$DiscordRoot,[string]$BdRoot) {
     New-Item -ItemType Directory -Path (Join-Path $Directory 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $Directory 'dist') -Force | Out-Null
-    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\maintenance.ps1','scripts\recovery.ps1','dist\RedflagAutoMute.plugin.js')) {
+    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\maintenance.ps1','scripts\maintenance-launcher.cs','scripts\recovery.ps1','scripts\plugin-update.ps1','dist\RedflagAutoMute.plugin.js')) {
         $from=Join-Path $PackageRoot $file; $to=Join-Path $Directory $file
         if ([IO.Path]::GetFullPath($from) -ne [IO.Path]::GetFullPath($to)) { Copy-Item -LiteralPath $from -Destination $to -Force }
     }
-    @{version=$RfamVersion;pluginDirectory=$PluginDirectory;discordRoot=$DiscordRoot;bdRoot=$BdRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory 'maintenance.json') -Encoding UTF8
+    @{autoUpdatePlugin=$true;version=$RfamVersion;pluginDirectory=$PluginDirectory;discordRoot=$DiscordRoot;bdRoot=$BdRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory 'maintenance.json') -Encoding UTF8
+    $launcher=Join-Path $Directory 'scripts\maintenance-launcher.exe'
+    $compiled=Join-Path $Directory ('scripts\launcher-'+[guid]::NewGuid().ToString('N')+'.exe')
+    try {
+        Add-Type -Path (Join-Path $Directory 'scripts\maintenance-launcher.cs') -OutputAssembly $compiled -OutputType WindowsApplication
+        Copy-Item -LiteralPath $compiled -Destination $launcher -Force
+    } finally {if(Test-Path -LiteralPath $compiled){Remove-Item -LiteralPath $compiled -Force}}
     Register-RfamTask $Directory
 }
 . (Join-Path $PSScriptRoot 'recovery.ps1')
+
+. (Join-Path $PSScriptRoot 'plugin-update.ps1')

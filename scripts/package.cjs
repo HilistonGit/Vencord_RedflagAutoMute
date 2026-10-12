@@ -12,7 +12,7 @@ fs.rmSync(stage,{recursive:true,force:true});
 for(const f of files){const to=path.join(stage,f);fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(path.join(root,f),to);}
 if(process.platform!=='win32')throw Error('ZIP packaging requires PowerShell on Windows; staging directory is ready.');
 const quote=s=>"'"+s.replace(/'/g,"''")+"'";
-const zip=path.join(root,'dist/RedflagAutoMute-2.0.2.zip');
+const zip=path.join(root,'dist/RedflagAutoMute-2.0.3.zip');
 // PowerShell 7's inherited module path can hide Windows PowerShell 5 modules.
 const env={...process.env};for(const key of Object.keys(env))if(key.toLowerCase()==='psmodulepath')delete env[key];
 const r=spawnSync('powershell.exe',['-NoProfile','-Command',`$ErrorActionPreference='Stop'; Compress-Archive -Path ${quote(stage+'/*')} -DestinationPath ${quote(zip)} -Force`],{stdio:'inherit',env});

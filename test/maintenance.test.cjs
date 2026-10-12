@@ -104,3 +104,53 @@ function Get-RfamSignal {return [pscustomobject]@{schema=1;state='running';start
 function Get-RfamLatestRuntime {throw 'Healthy active session should not check for updates'}
 Check ((Invoke-RfamMaintenance $runtime).state -eq 'healthy') 'Recovered plugin not recognized'
 `));
+
+const updateSetup=setup+`
+$maintenance=Join-Path $root 'maintenance';New-Item -ItemType Directory -Path $maintenance -Force|Out-Null
+$config=[pscustomobject]@{autoUpdatePlugin=$true;pluginDirectory=$plugins;discordRoot=$discord;bdRoot=$bd}
+$installed=Join-Path $plugins 'RedflagAutoMute.plugin.js'
+Set-Content -LiteralPath $installed -Value '/** @name RedflagAutoMute @version 2.0.2 */'
+$candidate=Join-Path $root 'new.js';Set-Content -LiteralPath $candidate -Value '/** @name RedflagAutoMute @version 2.0.3 */'
+$script:checks=0
+function Get-RfamPluginRelease {$script:checks++;return @{version=[version]'2.0.3';hash=(Get-RfamHash $candidate);url='test'}}
+function Get-RfamRemoteFile($url,$destination){Copy-Item -LiteralPath $candidate -Destination $destination}
+function Get-RfamSession {return $null}
+`;
+test('plugin update verifies payload, preserves settings, confirms startup and throttles requests',{skip:process.platform!=='win32'},()=>run(updateSetup+`
+Set-Content -LiteralPath (Join-Path $plugins 'RedflagAutoMute.config.json') -Value 'keep'
+Invoke-RfamPluginUpdate $maintenance $config
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.3') 'Update missing'
+Check ((Get-Content (Join-Path $plugins 'RedflagAutoMute.config.json')) -eq 'keep') 'Settings changed'
+Check (Test-Path (Join-Path $maintenance 'plugin-update/previous.plugin.js')) 'No backup'
+Invoke-RfamPluginUpdate $maintenance $config
+Check ($script:checks -eq 1) 'Repeated release check'
+function Get-RfamSession {return @{startedAt=1;resources=$resources}}
+function Test-RfamPluginEnabled {return $true}
+function Get-RfamSignal {return @{state='running';pluginVersion='2.0.3';startedAt=2;seenAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()}}
+Invoke-RfamPluginUpdate $maintenance $config
+$s=Read-RfamState (Join-Path $maintenance 'plugin-update/state.json')
+Check ($s.status -eq 'updated' -and !$s.pending) 'Startup not confirmed'
+Invoke-RfamPluginUpdate $maintenance $config
+Check ($script:checks -eq 1) 'Throttle failed'
+`));
+test('plugin update rejects corrupt downloads and never downgrades',{skip:process.platform!=='win32'},()=>run(updateSetup+`
+function Get-RfamRemoteFile($url,$destination){Set-Content -LiteralPath $destination -Value 'corrupt'}
+Invoke-RfamPluginUpdate $maintenance $config
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.2') 'Corrupt payload installed'
+$file=Join-Path $maintenance 'plugin-update/state.json';$s=Read-RfamState $file;$s.nextCheck=0;Save-RfamJson $s $file
+Set-Content -LiteralPath $installed -Value '/** @name RedflagAutoMute @version 2.0.4 */'
+Invoke-RfamPluginUpdate $maintenance $config
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.4') 'Downgrade'
+`));
+test('missing new heartbeat rolls back once and blocks the same version',{skip:process.platform!=='win32'},()=>run(updateSetup+`
+Invoke-RfamPluginUpdate $maintenance $config
+$file=Join-Path $maintenance 'plugin-update/state.json';$s=Read-RfamState $file;$s.pending.at=1;Save-RfamJson $s $file
+function Get-RfamSession {return @{startedAt=1;resources=$resources}}
+function Test-RfamPluginEnabled {return $true}
+function Get-RfamSignal {return $null}
+Invoke-RfamPluginUpdate $maintenance $config
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.2') 'Rollback failed'
+$s=Read-RfamState $file;Check ($s.blockedVersion -eq '2.0.3') 'No blocked version';$s.nextCheck=0;Save-RfamJson $s $file
+Invoke-RfamPluginUpdate $maintenance $config
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.2') 'Bad release retried'
+`));

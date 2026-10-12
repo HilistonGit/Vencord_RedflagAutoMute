@@ -52,8 +52,17 @@ function Get-RfamRemoteFile([string]$Url,[string]$Destination) {
     if($Url -notmatch '^https://'){throw 'Требуется HTTPS'}
     $curl=Join-Path $env:SystemRoot 'System32\curl.exe'
     if(Test-Path -LiteralPath $curl){
-        & $curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --retry 1 --user-agent 'RedflagAutoMute-Maintenance' --output $Destination $Url
-        if($LASTEXITCODE -ne 0){throw 'Официальный сервер обновлений недоступен; повторим позже'}
+        if($Url.Contains('"') -or $Destination.Contains('"')){throw 'Недопустимые параметры загрузки'}
+        $download=New-Object Diagnostics.Process
+        $download.StartInfo.FileName=$curl
+        $download.StartInfo.Arguments='--fail --location --silent --show-error --proto =https --proto-redir =https --connect-timeout 15 --max-time 120 --retry 1 --user-agent RedflagAutoMute-Maintenance --output "'+$Destination+'" "'+$Url+'"'
+        $download.StartInfo.UseShellExecute=$false;$download.StartInfo.CreateNoWindow=$true
+        $download.StartInfo.RedirectStandardError=$true;$download.StartInfo.RedirectStandardOutput=$true
+        try {
+            $null=$download.Start();$stderr=$download.StandardError.ReadToEndAsync();$stdout=$download.StandardOutput.ReadToEndAsync()
+            $download.WaitForExit()
+            if($download.ExitCode -ne 0){throw 'Официальный сервер обновлений недоступен; повторим позже'}
+        } finally {$download.Dispose()}
     }else{Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $Url -OutFile $Destination}
 }
 function Get-RfamReleaseAsset([string]$Repository,[string]$Pattern,[string]$Directory) {
@@ -155,5 +164,6 @@ function Invoke-RfamMaintenance([string]$Directory) {
     } catch {$status.state='error';$status.message=$_.Exception.Message}
     Save-RfamJson $state $stateFile
     Save-RfamJson $status (Join-Path $Directory 'status.json')
+    Invoke-RfamPluginUpdate $Directory $config
     return [pscustomobject]$status
 }

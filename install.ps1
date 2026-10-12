@@ -86,6 +86,7 @@ try {
         Write-Host '  [3] Диагностика и пути журналов'
         Write-Host '  [4] Отключить автовосстановление'
         Write-Host '  [5] Выбрать Discord: Stable / PTB / Canary'
+        Write-Host '  [6] Включить / отключить автообновление плагина (раз в 6 часов)'
         Write-Host '  [0] Выход'
         Write-Host ''
         $choice=Read-Host ' Выберите пункт [1]'
@@ -96,6 +97,7 @@ try {
                 '3' {Show-RfamStatus}
                 '4' {Disable-RfamMaintenance;Write-Host ' Автовосстановление отключено. Плагин и настройки сохранены.' -ForegroundColor Green}
                 '5' {if($customRoot){Write-Host 'Используется путь -DiscordRoot; для смены перезапустите без него.'}else{$new=Read-Host ' stable / ptb / canary';if($new -in @('stable','ptb','canary')){$Channel=$new;$DiscordRoot=Get-RfamDiscordRoot $Channel}else{Write-Host 'Неизвестный канал'}}}
+                '6' {$file=Join-Path $MaintenanceDirectory 'maintenance.json';$cfg=Read-RfamState $file;if(!$cfg.version){throw 'Сначала включите фоновую задачу пунктом 1'};$cfg.autoUpdatePlugin=!($cfg.autoUpdatePlugin -eq $true);Save-RfamJson $cfg $file;Write-Host (' Автообновление плагина: '+$cfg.autoUpdatePlugin)}
                 '0' {exit 0}
                 default {Write-Host ' Выберите номер пункта.' -ForegroundColor Yellow}
             }
