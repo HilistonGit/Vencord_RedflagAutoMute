@@ -7,7 +7,7 @@
 ![Один флажок → общий список → спокойный голосовой чат](docs/images/overview.svg)
 
 <p align="center">
-  <a href="https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.5/RedflagAutoMute-2.0.5.zip"><strong>⬇ Скачать для Windows · 2.0.5</strong></a>
+  <a href="https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.6/RedflagAutoMute-2.0.6.zip"><strong>⬇ Скачать для Windows · 2.0.6</strong></a>
   &nbsp; · &nbsp;
   <a href="#-начать-с-друзьями">Быстрый старт</a>
   &nbsp; · &nbsp;
@@ -28,7 +28,7 @@
 
 ### 1. Установите
 
-[Скачайте архив для Windows](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.5/RedflagAutoMute-2.0.5.zip), **полностью распакуйте** его и запустите `Install.cmd`.
+[Скачайте архив для Windows](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/download/v2.0.6/RedflagAutoMute-2.0.6.zip), **полностью распакуйте** его и запустите `Install.cmd`.
 
 Выберите **1 — Установить / восстановить + включить автовосстановление** и дождитесь завершения. Установщик поставит BetterDiscord и плагин. Если попросит закрыть Discord — закройте его и в трее.
 
@@ -129,7 +129,7 @@
 <details>
 <summary>🍎 🐧 Установка вручную, macOS и Linux</summary>
 
-Установите [BetterDiscord](https://betterdiscord.app/), скачайте `RedflagAutoMute.plugin.js` из [релиза](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/tag/v2.0.5) и поместите его в папку **Плагины → Open Plugins Folder**. Затем включите плагин и вставьте приглашение.
+Установите [BetterDiscord](https://betterdiscord.app/), скачайте `RedflagAutoMute.plugin.js` из [релиза](https://github.com/HilistonGit/Vencord_RedflagAutoMute/releases/tag/v2.0.6) и поместите его в папку **Плагины → Open Plugins Folder**. Затем включите плагин и вставьте приглашение.
 
 Автоматический установщик предназначен для Windows. Работа на macOS и Linux отдельно не проверялась.
 

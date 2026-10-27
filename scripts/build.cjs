@@ -8,7 +8,7 @@ if (Object.values(publicConfig).some(Boolean)) throw new Error("Public builds mu
 const header = `/**
  * @name RedflagAutoMute
  * @author RedflagAutoMute contributors
- * @version 2.0.5
+ * @version 2.0.6
  * @description Муть токсичных людей вместе с друзьями.
  */\n`;
 const modules = files.map(name => `${JSON.stringify(`./${name}.cjs`)}: (module, exports, require) => {\n${fs.readFileSync(path.join(root, "src", `${name}.cjs`), "utf8").replace(/\r\n/g, "\n")}\n}`).concat([

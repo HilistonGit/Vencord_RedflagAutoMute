@@ -11,7 +11,7 @@ test('Windows installer preserves config, backs up plugin and rejects changed pa
   const first=run();assert.equal(first.status,0,first.stdout+first.stderr);assert.equal(fs.readFileSync(config,'utf8'),'{"keep":true}');assert.equal(fs.readFileSync(path.join(plugins,'RedflagAutoMute.plugin.js'),'utf8'),source);
   assert.equal(fs.readdirSync(path.join(temp,'BetterDiscord','redflag-backups')).length,1);
   const second=run();assert.equal(second.status,0,second.stdout+second.stderr);assert.equal(fs.readdirSync(path.join(temp,'BetterDiscord','redflag-backups')).length,1);
-  const tui=spawnSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(temp,'install.ps1'),'-PluginDirectory',plugins,'-SkipBetterDiscord','-MaintenanceDirectory',path.join(temp,'maintenance')],{encoding:'utf8',input:'2\n\n0\n',timeout:15000});assert.equal(tui.status,0,tui.stdout+tui.stderr);assert.match(tui.stdout,/REDFLAG AUTOMUTE 2\.0\.5/);assert.match(tui.stdout,/\[4\/4\]/);
+  const tui=spawnSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(temp,'install.ps1'),'-PluginDirectory',plugins,'-SkipBetterDiscord','-MaintenanceDirectory',path.join(temp,'maintenance')],{encoding:'utf8',input:'2\n\n0\n',timeout:15000});assert.equal(tui.status,0,tui.stdout+tui.stderr);assert.match(tui.stdout,/REDFLAG AUTOMUTE 2\.0\.6/);assert.match(tui.stdout,/\[4\/4\]/);
   fs.appendFileSync(path.join(dist,'RedflagAutoMute.plugin.js'),'tampered');assert.equal(run().status,1);assert.equal(fs.readFileSync(path.join(plugins,'RedflagAutoMute.plugin.js'),'utf8'),source);
  } finally {if(path.dirname(temp)===path.resolve(os.tmpdir())&&path.basename(temp).startsWith('rfam-installer-'))fs.rmSync(temp,{recursive:true,force:true});}
 });
