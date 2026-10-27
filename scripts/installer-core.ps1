@@ -152,7 +152,7 @@ function Register-RfamTask([string]$Directory) {
 function Enable-RfamMaintenance([string]$PackageRoot,[string]$Directory,[string]$PluginDirectory,[string]$DiscordRoot,[string]$BdRoot) {
     New-Item -ItemType Directory -Path (Join-Path $Directory 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $Directory 'dist') -Force | Out-Null
-    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\maintenance.ps1','scripts\maintenance-launcher.cs','scripts\recovery.ps1','scripts\plugin-update.ps1','dist\RedflagAutoMute.plugin.js')) {
+    foreach ($file in @('install.ps1','SHA256SUMS.txt','scripts\installer-core.ps1','scripts\installer-tui.ps1','scripts\maintenance.ps1','scripts\maintenance-launcher.cs','scripts\recovery.ps1','scripts\plugin-update.ps1','dist\RedflagAutoMute.plugin.js')) {
         $from=Join-Path $PackageRoot $file; $to=Join-Path $Directory $file
         if ([IO.Path]::GetFullPath($from) -ne [IO.Path]::GetFullPath($to)) { Copy-Item -LiteralPath $from -Destination $to -Force }
     }
