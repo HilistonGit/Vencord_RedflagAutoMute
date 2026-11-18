@@ -83,6 +83,25 @@
           ".validate": "$slot.matches(/^g[0-4]$/) && newData.isString() && newData.val().matches(/^[a-f0-9]{48}$/) && newData.parent().parent().parent().child('groups').child(newData.val()).child('owner').val() === $uid && newData.parent().parent().parent().child('groups').child(newData.val()).child('ownerSlot').val() === $slot"
         }
       }
+    },
+    "diagnostics": {
+      "$uid": {
+        ".read": false,
+        ".write": "auth != null && auth.uid === $uid && (!data.exists() || now >= data.child(\"updatedAt\").val() + 60000)",
+        ".validate": "newData.hasChildren([\"schema\",\"updatedAt\",\"events\"])",
+        "schema": {
+          ".validate": "newData.val() === 1"
+        },
+        "updatedAt": {
+          ".validate": "newData.val() === now"
+        },
+        "events": {
+          ".validate": "newData.isString() && newData.val().length <= 12000"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
     }
   }
 }

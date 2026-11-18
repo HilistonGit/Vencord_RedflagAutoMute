@@ -689,6 +689,55 @@ class Highlights {
 module.exports = { databaseFlags, VideoController, NoteController, Highlights, editNote, BAN_NOTE, WARN_NOTE };
 
 },
+"./diagnostics.cjs": (module, exports, require) => {
+'use strict';
+const EVENTS=new Set(['start','runtime','settings-request','settings-mounted','settings-not-mounted','settings-render','settings-action']);
+const version=v=>/^\d+(?:\.\d+){1,3}(?:[-+][a-zA-Z0-9.-]{1,24})?$/.test(String(v))?String(v):'unknown';
+class Diagnostics {
+    constructor(api,clock=Date.now){this.api=api;this.clock=clock;this.entries=[];this.enabled=false;this.next=0;this.serial=0;this.status='Отправка выключена';
+        try{const saved=api.Data.load('RedflagAutoMuteDiagnostics','events');if(Array.isArray(saved))this.entries=saved.slice(-20).filter(x=>x&&EVENTS.has(x.event)).map(x=>({event:x.event,kind:['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(x.kind)?x.kind:'none',frames:/^(?:[0-9]{1,7}:[0-9]{1,7}(?:,|$)){0,6}$/.test(x.frames)?x.frames:'',at:Number.isFinite(x.at)?x.at:0,plugin:version(x.plugin),betterdiscord:version(x.betterdiscord),react:version(x.react),discord:version(x.discord)}));}catch{}
+        try{this.enabled=api.Data.load('RedflagAutoMuteDiagnostics','consent')===true;}catch{}
+    }
+    consent(value){this.enabled=!!value;this.api.Data.save('RedflagAutoMuteDiagnostics','consent',this.enabled);this.status=this.enabled?'Ожидание отправки':'Отправка выключена';}
+    record(event,error){try{this.recordSafe(event,error);}catch{/* Diagnostics must never break the plugin. */}}
+    recordSafe(event,error){
+        if(!EVENTS.has(event))return;
+        const kind=['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(error?.name)?error.name:'none';
+        // Never persist messages, arbitrary stack text, URLs or user-provided values.
+        const frames=[...String(error?.stack||'').matchAll(/RedflagAutoMute\.plugin\.js:(\d{1,7}):(\d{1,7})/g)].slice(0,6).map(m=>`${m[1]}:${m[2]}`).join(',');
+        const item={event,kind,frames,at:this.clock(),plugin:'2.0.6',betterdiscord:version(this.api.version),react:version(this.api.React?.version),discord:version(globalThis.DiscordNative?.app?.getVersion?.())};
+        const prev=this.entries[this.entries.length-1];
+        if(prev&&prev.event===event&&prev.kind===kind&&prev.frames===frames&&item.at-prev.at<60000)return;
+        this.entries.push(item);this.entries=this.entries.slice(-20);this.serial++;
+        try{this.api.Data.save('RedflagAutoMuteDiagnostics','events',this.entries);}catch{}
+    }
+    async flush(client){
+        if(!this.enabled||this.pending||!client?.session||!this.entries.length||this.clock()<this.next||(this.sent===this.serial&&this.destination===client.config?.databaseURL+':'+client.session.uid))return;
+        this.next=this.clock()+60000;this.pending=true;
+        const serial=this.serial,report={schema:1,updatedAt:{'.sv':'timestamp'},events:JSON.stringify(this.entries)};
+        try{await client.request(`diagnostics/${client.session.uid}`,'PUT',report);this.sent=serial;this.destination=client.config?.databaseURL+':'+client.session.uid;this.status='Технический отчёт отправлен';}
+        catch{this.status='Отчёт сохранён локально; проверьте сеть и правила Firebase';}
+        finally{this.pending=false;}
+    }
+}
+function guardedSettings(plugin,create){
+    const api=globalThis.BdApi,R=api.React,h=R.createElement;
+    const d=plugin.diagnostics ||= new Diagnostics(api);
+    d.record('settings-request');
+    let mounted=false;
+    const timer=setTimeout(()=>{if(!mounted)d.record('settings-not-mounted');},5000);timer.unref?.();
+    function Content(){R.useEffect(()=>{mounted=true;clearTimeout(timer);d.record('settings-mounted');},[]);return create();}
+    class Boundary extends R.Component {
+        constructor(props){super(props);this.state={failed:false};}
+        static getDerivedStateFromError(){return {failed:true};}
+        componentDidCatch(error){clearTimeout(timer);d.record('settings-render',error);}
+        render(){return this.state.failed?h('div',{style:{padding:20}},h('h3',null,'Не удалось открыть настройки RedflagAutoMute'),h('p',null,'Техническая ошибка сохранена локально. Можно разрешить её автоматическую отправку владельцу базы после входа.'),h('button',{onClick:()=>{d.consent(!d.enabled);this.forceUpdate();}},d.enabled?'Отключить отправку отчётов':'Разрешить отправку отчётов'),h('p',null,d.status)):this.props.children;}
+    }
+    return h(Boundary,null,h(Content));
+}
+module.exports={Diagnostics,guardedSettings};
+
+},
 "./settings.cjs": (module, exports, require) => {
 "use strict";
 const { summarize } = require("./core.cjs");
@@ -734,7 +783,7 @@ function settingsPanel(plugin, parseInvite) {
         const run = async fn => {
             if(busy || epoch!==plugin.epoch) return;
             setBusy(true);setMessage(null);
-            try {await fn();} catch(e) {if(live.current)setMessage(e.message || String(e));}
+            try {await fn();} catch(e) {plugin.diagnostics?.record("settings-action",e);if(live.current)setMessage(e.message || String(e));}
             finally {if(live.current){setBusy(false);render();}}
         };
         const btn=(label,fn,kind="")=>h(BdApi.Components?.Button || "button",{type:"button",className:BdApi.Components?.Button ? "" : kind,color:kind==="primary"?"bd-button-color-brand":kind==="danger"?"bd-button-color-red":"bd-button-color-primary",size:"bd-button-small",disabled:busy,onClick:()=>run(fn)},label);
@@ -842,6 +891,8 @@ function settingsPanel(plugin, parseInvite) {
                     plugin.client?card(h("h3",null,flow==="register"?"Создать аккаунт плагина":"Войти в аккаунт плагина"),text("Email и отдельный пароль для этой базы. Это не пароль Discord или Google."),field("email","Email · обязательно","email"),field("password","Пароль · обязательно (от 6 символов)","password"),row(btn(flow==="register"?"Создать аккаунт":"Войти",async()=>{if(!form.email?.trim()||!form.password||form.password.length<6)throw Error("Укажите email и пароль длиной от 6 символов.");await plugin.client.signIn(form.email.trim(),form.password,flow==="register");if(epoch!==plugin.epoch)return;setForm({});if(plugin.pendingInvite)await join({...plugin.client.config,code:plugin.pendingInvite});else{setTab("groups");go(null);await plugin.sync();}},"primary"),btn(flow==="register"?"Уже есть аккаунт":"Нет аккаунта? Создать",()=>{setFlow(flow==="register"?null:"register");setMessage(null);})),plugin.pendingInvite?text("После входа вы автоматически присоединитесь к приглашённой группе."):null):text("Начните с приглашения друга. Если вы первый в компании — настройте свою базу.")));
         } else if(tab==="preferences") body=h("div",null,h("h2",null,"Мои настройки"),text("Эти настройки действуют только у вас."),
             ...[["includeYellow","Мутить за один жёлтый флажок","По умолчанию нужны два жёлтых от разных участников одной группы.",false],["disableVideo","Отключать видео","Вместе с голосом скрывать вебкамеру только у вас.",true],["markNotes","Добавлять информацию в заметки","ID записи и время блокировки. Ваш текст сохраняется. При выключенном плагине остаётся последний известный статус.",true]].map(([key,label,desc,fallback])=>toggle(label,desc,account[key]??fallback,v=>{account[key]=v;plugin.save();plugin.apply();})),
+            toggle("Отправлять технические ошибки","Владельцу подключённой Firebase: версии, этап сбоя и номера строк. Без переписки, паролей и содержимого групп. До входа отчёты остаются на компьютере.",plugin.diagnostics?.enabled,v=>plugin.diagnostics?.consent(v)),
+            text(plugin.diagnostics?.status || "Отправка выключена"),
             h("h3",{style:{marginTop:20}},"Личные исключения"),text("ПКМ по человеку → Redflag → всегда разрешать / всегда мутить. Разрешение отменяет звук и видео-мут, но отметка базы остаётся."),...Object.entries(account.overrides).map(([id,value])=>card(h("code",null,id),text(value==="allow"?"Всегда разрешён":"Всегда замьючен"),btn("Следовать правилам групп",()=>plugin.override(id,null)))),Object.keys(account.overrides).length?null:text("Исключений нет."));
         else body=h("div",null,h("h2",null,"Как это работает"),card(h("h3",null,"Флажки и мут"),text("Один красный или два жёлтых от разных участников одной включённой группы отключают звук и видео. Жёлтые из разных групп не складываются. При отзыве флажков ограничения снимаются.")),card(h("h3",null,"Группы"),text("Группа — отдельный список внутри подключённой базы. Учитываются все ваши включённые группы. Выключение группы действует только у вас; выход прекращает членство. Каталога чужих групп нет. После входа на другом устройстве список групп загружается автоматически. Владелец может удалить группу для всех участников с подтверждением.")),card(h("h3",null,"Заметки"),text("ID записи — ID группы / Discord ID пользователя. Время берётся из сохранённых флажков, вызвавших блокировку, в UTC. Это время по текущим голосам: после отзыва или замены карточек оно может измениться; отдельной истории банов пока нет. Если пользователь отмечен в нескольких группах, показана самая ранняя действующая блокировка.")),h("details",null,h("summary",null,"Диагностика"),text(plugin.status),text(plugin.notes?.status||"Заметки: ожидание"),plugin.notes?text(`Заметок в очереди: ${plugin.notes.pendingCount}`):null,text(plugin.video?"Видео подключено":"Видео недоступно")));
         return h("div",{className:"rf-settings"},h("style",null,CSS),h("h2",null,"RedflagAutoMute"),text("Муть токсичных людей вместе с друзьями."),h("nav",{"aria-label":"Разделы настроек",role:"tablist"},...[ ["groups","Мои группы"],["connect","Подключение"],["preferences","Мои настройки"],["help","Как это работает"] ].map(([key,label])=>h("button",{key,role:"tab","aria-selected":tab===key,onClick:()=>{setTab(key);go(null);select(null);}},label))),message?h("div",{className:"notice error",role:"alert"},message):null,busy?h("div",{role:"status",className:"notice"},"Подождите…"):null,body);
@@ -860,6 +911,7 @@ const { transport } = require("./transport.cjs");
 const { Realtime } = require("./realtime.cjs");
 const { createRuntimeHealth } = require("./health.cjs");
 const { databaseFlags, VideoController, NoteController, Highlights } = require("./features.cjs");
+const { Diagnostics, guardedSettings } = require("./diagnostics.cjs");
 const { settingsPanel } = require("./settings.cjs");
 const {discordExport,exportList,bannedIds}=require("./transfer.cjs");
 const NAME = "RedflagAutoMute";
@@ -876,6 +928,11 @@ function parseInvite(text) {
 
 module.exports = class RedflagAutoMute {
     start() {
+        this.diagnostics = new Diagnostics(BdApi);
+        this.diagnostics.record("start");
+        try { this.startCore(); } catch(error) {this.diagnostics.record("runtime",error);throw error;}
+    }
+    startCore() {
         this.running = true;
         this.epoch = (this.epoch || 0) + 1;
         this.config = BdApi.Data.load(NAME, "config") || DEFAULT_CONFIG;
@@ -892,6 +949,7 @@ module.exports = class RedflagAutoMute {
     }
     save() { BdApi.Data.save(NAME, "accounts", this.accounts); }
     error(error) {
+        this.diagnostics?.record("runtime",error);
         this.status = error.message || String(error);
         BdApi.UI.showToast(`Redflag: ${this.status}`, { type: "error" });
     }
@@ -910,6 +968,7 @@ module.exports = class RedflagAutoMute {
                 this.makeClient();
                 this.nextSync = 0;
             }
+            void this.diagnostics?.flush(this.client);
             if (!this.controller) {
                 const store = BdApi.Webpack.getStore("MediaEngineStore");
                 const actions = BdApi.Webpack.getByKeys("toggleLocalMute");
@@ -927,7 +986,7 @@ module.exports = class RedflagAutoMute {
             this.apply();
             this.setupRealtime();
             if (this.client?.session && !this.realtime?.healthy() && Date.now() >= (this.nextSync || 0)) void this.sync();
-        } catch (error) { this.status = error.message; }
+        } catch (error) { this.status = error.message; this.diagnostics?.record("runtime",error); }
     }
     makeClient() {
         this.realtime?.close(); this.realtime = null;
@@ -1204,16 +1263,14 @@ module.exports = class RedflagAutoMute {
         this.client = null;
     }
     getSettingsPanel() {
-        // Discord's settings dialog traps focus outside BetterDiscord's modal.
-        // Close that underlying dialog before showing the plugin settings.
-        const settingsActions = BdApi.Webpack.getByKeys("openUserSettings", "USER_SETTINGS_MODAL_KEY");
-        const modalModule = BdApi.Webpack.getModule(m => m && Object.values(m).some(fn => typeof fn === "function" && String(fn).includes("?.stackNextByDefault")));
-        const closeModal = BdApi.Webpack.getByKeys("openModal", "closeModal")?.closeModal || Object.values(modalModule || {}).find(fn => typeof fn === "function" && String(fn).includes(".setState") && String(fn).includes(".getState()["));
-        const settingsKey = settingsActions?.USER_SETTINGS_MODAL_KEY || Array.from(modalModule?.getOpenModalKeys?.() || []).find(key => /USER_SETTINGS/i.test(key)) || "USER_SETTINGS_MODAL_MODAL_KEY";
-        if (document.querySelector('[role="dialog"]')) {
-            closeModal?.(settingsKey);
+        try { return guardedSettings(this, () => settingsPanel(this, parseInvite)); }
+        catch(error) {
+            (this.diagnostics ||= new Diagnostics(BdApi)).record("settings-render",error);
+            const fallback=document.createElement("div");
+            fallback.style.padding="20px";
+            fallback.textContent="RedflagAutoMute: настройки недоступны. Техническая ошибка сохранена в RedflagAutoMuteDiagnostics.config.json рядом с плагином.";
+            return fallback;
         }
-        return settingsPanel(this, parseInvite);
     }
     configure(config) {
         const next = validateConfig(config);

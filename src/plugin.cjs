@@ -6,6 +6,7 @@ const { transport } = require("./transport.cjs");
 const { Realtime } = require("./realtime.cjs");
 const { createRuntimeHealth } = require("./health.cjs");
 const { databaseFlags, VideoController, NoteController, Highlights } = require("./features.cjs");
+const { Diagnostics, guardedSettings } = require("./diagnostics.cjs");
 const { settingsPanel } = require("./settings.cjs");
 const {discordExport,exportList,bannedIds}=require("./transfer.cjs");
 const NAME = "RedflagAutoMute";
@@ -22,6 +23,11 @@ function parseInvite(text) {
 
 module.exports = class RedflagAutoMute {
     start() {
+        this.diagnostics = new Diagnostics(BdApi);
+        this.diagnostics.record("start");
+        try { this.startCore(); } catch(error) {this.diagnostics.record("runtime",error);throw error;}
+    }
+    startCore() {
         this.running = true;
         this.epoch = (this.epoch || 0) + 1;
         this.config = BdApi.Data.load(NAME, "config") || DEFAULT_CONFIG;
@@ -38,6 +44,7 @@ module.exports = class RedflagAutoMute {
     }
     save() { BdApi.Data.save(NAME, "accounts", this.accounts); }
     error(error) {
+        this.diagnostics?.record("runtime",error);
         this.status = error.message || String(error);
         BdApi.UI.showToast(`Redflag: ${this.status}`, { type: "error" });
     }
@@ -56,6 +63,7 @@ module.exports = class RedflagAutoMute {
                 this.makeClient();
                 this.nextSync = 0;
             }
+            void this.diagnostics?.flush(this.client);
             if (!this.controller) {
                 const store = BdApi.Webpack.getStore("MediaEngineStore");
                 const actions = BdApi.Webpack.getByKeys("toggleLocalMute");
@@ -73,7 +81,7 @@ module.exports = class RedflagAutoMute {
             this.apply();
             this.setupRealtime();
             if (this.client?.session && !this.realtime?.healthy() && Date.now() >= (this.nextSync || 0)) void this.sync();
-        } catch (error) { this.status = error.message; }
+        } catch (error) { this.status = error.message; this.diagnostics?.record("runtime",error); }
     }
     makeClient() {
         this.realtime?.close(); this.realtime = null;
@@ -350,16 +358,14 @@ module.exports = class RedflagAutoMute {
         this.client = null;
     }
     getSettingsPanel() {
-        // Discord's settings dialog traps focus outside BetterDiscord's modal.
-        // Close that underlying dialog before showing the plugin settings.
-        const settingsActions = BdApi.Webpack.getByKeys("openUserSettings", "USER_SETTINGS_MODAL_KEY");
-        const modalModule = BdApi.Webpack.getModule(m => m && Object.values(m).some(fn => typeof fn === "function" && String(fn).includes("?.stackNextByDefault")));
-        const closeModal = BdApi.Webpack.getByKeys("openModal", "closeModal")?.closeModal || Object.values(modalModule || {}).find(fn => typeof fn === "function" && String(fn).includes(".setState") && String(fn).includes(".getState()["));
-        const settingsKey = settingsActions?.USER_SETTINGS_MODAL_KEY || Array.from(modalModule?.getOpenModalKeys?.() || []).find(key => /USER_SETTINGS/i.test(key)) || "USER_SETTINGS_MODAL_MODAL_KEY";
-        if (document.querySelector('[role="dialog"]')) {
-            closeModal?.(settingsKey);
+        try { return guardedSettings(this, () => settingsPanel(this, parseInvite)); }
+        catch(error) {
+            (this.diagnostics ||= new Diagnostics(BdApi)).record("settings-render",error);
+            const fallback=document.createElement("div");
+            fallback.style.padding="20px";
+            fallback.textContent="RedflagAutoMute: настройки недоступны. Техническая ошибка сохранена в RedflagAutoMuteDiagnostics.config.json рядом с плагином.";
+            return fallback;
         }
-        return settingsPanel(this, parseInvite);
     }
     configure(config) {
         const next = validateConfig(config);
