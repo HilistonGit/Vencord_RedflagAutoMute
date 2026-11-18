@@ -84,6 +84,7 @@ module.exports = class RedflagAutoMute {
         } catch (error) { this.status = error.message; this.diagnostics?.record("runtime",error); }
     }
     makeClient() {
+        this.pendingInvite=null;
         this.realtime?.close(); this.realtime = null;
         this.client = null;
         this.notes = null;
@@ -91,9 +92,10 @@ module.exports = class RedflagAutoMute {
             const epoch = this.epoch, account = this.account;
             const project = validateConfig(this.config).databaseURL;
             if (account.project && account.project !== project) {
-                account.session = null; account.firebaseUid = null; account.groups = []; account.cache = {};
+                account.session = null; account.firebaseUid = null; account.pendingInvite=null; account.groups = []; account.cache = {};
             }
             account.project = project;
+            this.pendingInvite=account.pendingInvite||null;
             this.client = new FirebaseClient(this.config, transport, account.session, session => {
                 if (this.running && epoch === this.epoch) {
                     if (account.firebaseUid && account.firebaseUid !== session.uid) { account.groups = []; account.cache = {}; }

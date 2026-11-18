@@ -37,7 +37,7 @@ function Update-RfamScreen {
     try {
         $width=[Console]::WindowWidth;$height=[Console]::WindowHeight
         if($width -ne $script:RfamTui.Width -or $height -ne $script:RfamTui.Height){[Console]::Clear();$script:RfamTui.Width=$width;$script:RfamTui.Height=$height;$script:RfamTui.Previous=@()}
-        $rows=Get-RfamFrame $width $height $script:RfamTui.Title $script:RfamTui.Lines $script:RfamTui.Prompt $script:RfamTui.Input
+        $rows=Get-RfamFrame $width $height $script:RfamTui.Title $script:RfamTui.Lines $script:RfamTui.Prompt $(if($script:RfamTui.Secret){"*"*$script:RfamTui.Input.Length}else{$script:RfamTui.Input})
         for($i=0;$i -lt $rows.Count;$i++){
             if($i -lt $script:RfamTui.Previous.Count -and $rows[$i].Text -eq $script:RfamTui.Previous[$i].Text -and $rows[$i].Color -eq $script:RfamTui.Previous[$i].Color){continue}
             [Console]::SetCursorPosition([Console]::WindowLeft,[Console]::WindowTop+$i)
@@ -57,8 +57,9 @@ function Write-RfamLine([string]$Text='', [ConsoleColor]$ForegroundColor='Gray')
     if($script:RfamTui.Lines.Count -gt 200){$script:RfamTui.Lines.RemoveAt(0)}
     Update-RfamScreen
 }
-function Read-RfamInput([string]$Prompt) {
-    if(!$script:RfamTui){return Read-Host $Prompt}
+function Read-RfamInput([string]$Prompt,[switch]$Secret) {
+    if(!$script:RfamTui){if(!$Secret){return Read-Host $Prompt};$secure=Read-Host $Prompt -AsSecureString;$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure);try{return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr);$secure.Dispose()}}
+    $script:RfamTui.Secret=[bool]$Secret
     $script:RfamTui.Prompt=$Prompt;$script:RfamTui.Input=''
     try {
         while($true){
@@ -68,7 +69,7 @@ function Read-RfamInput([string]$Prompt) {
             if($key.Key -eq 'Enter'){return $script:RfamTui.Input}
             if($key.Key -eq 'Backspace'){
                 if($script:RfamTui.Input.Length){$script:RfamTui.Input=$script:RfamTui.Input.Substring(0,$script:RfamTui.Input.Length-1)}
-            } elseif(![char]::IsControl($key.KeyChar) -and $script:RfamTui.Input.Length -lt 80){$script:RfamTui.Input+=$key.KeyChar}
+            } elseif(![char]::IsControl($key.KeyChar) -and $script:RfamTui.Input.Length -lt 4096){$script:RfamTui.Input+=$key.KeyChar}
         }
     } finally {$script:RfamTui.Prompt='';$script:RfamTui.Input=''}
 }

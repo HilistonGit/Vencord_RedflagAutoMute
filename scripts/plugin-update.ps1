@@ -19,8 +19,8 @@ function Get-RfamPluginRelease([string]$Directory) {
        $asset.browser_download_url -ne "https://github.com/$repo/releases/download/$($release.tag_name)/RedflagAutoMute.plugin.js") {throw 'Invalid plugin asset source or digest'}
     return @{version=$version;hash=$asset.digest.Substring(7).ToLowerInvariant();url=$asset.browser_download_url}
 }
-function Invoke-RfamPluginUpdate([string]$Directory,$Config) {
-    if($Config.autoUpdatePlugin -ne $true){return}
+function Invoke-RfamPluginUpdate([string]$Directory,$Config,[switch]$ForceCheck) {
+    if(!$ForceCheck -and $Config.autoUpdatePlugin -ne $true){return}
     $folder=Join-Path $Directory 'plugin-update';New-Item -ItemType Directory -Path $folder -Force|Out-Null
     $stateFile=Join-Path $folder 'state.json';$state=Read-RfamState $stateFile
     $now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -49,7 +49,7 @@ function Invoke-RfamPluginUpdate([string]$Directory,$Config) {
             $state.blockedVersion=$pending.version;$state.pending=$null;$state.status='rolled-back'
             return
         }
-        if($state.nextCheck -and $now -lt [long]$state.nextCheck){return}
+        if(!$ForceCheck -and $state.nextCheck -and $now -lt [long]$state.nextCheck){return}
         $state.nextCheck=$now+21600000;$state.checkedAt=[DateTime]::UtcNow.ToString('o')
         $installed=Get-RfamPluginVersion $file
         if(!$installed){$state.status='unknown-local-version';return}

@@ -154,3 +154,45 @@ $s=Read-RfamState $file;Check ($s.blockedVersion -eq '2.0.3') 'No blocked versio
 Invoke-RfamPluginUpdate $maintenance $config
 Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.2') 'Bad release retried'
 `));
+test('manual update bypasses schedule and disabled automatic updates without changing preference',{skip:process.platform!=='win32'},()=>run(updateSetup+`
+$config.autoUpdatePlugin=$false
+New-Item -ItemType Directory -Path (Join-Path $maintenance "plugin-update") -Force|Out-Null
+Save-RfamJson @{nextCheck=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+21600000)} (Join-Path $maintenance 'plugin-update/state.json')
+Invoke-RfamPluginUpdate $maintenance $config
+Check ($script:checks -eq 0) 'Automatic update ignored opt-out'
+Invoke-RfamPluginUpdate $maintenance $config -ForceCheck
+Check ($script:checks -eq 1) 'Manual check did not bypass throttle'
+Check ($config.autoUpdatePlugin -eq $false) 'Preference changed'
+Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.3') 'Update not installed'
+`));
+test('support collects without plugin startup and strips arbitrary diagnostics fields',{skip:process.platform!=='win32'},()=>run(setup+`
+. '${path.resolve(__dirname,'../scripts/support.ps1').replaceAll("'","''")}'
+@{events=@(@{event='runtime';kind='TypeError';frames='42:3';message='SECRET';token='SECRET';plugin='2.0.6'},@{event='SECRET';kind='SECRET'})}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $plugins 'RedflagAutoMuteDiagnostics.config.json')
+$r=Get-RfamSupportReport $plugins $discord $bd $root 'stable'
+Check ($r.events -notmatch 'SECRET') 'Sensitive data leaked'
+Check ($r.events -match '42:3') 'Error location missing'
+Check ($r.events -match 'installer-support') 'Startup-independent state missing'
+$invite=@{databaseURL='https://demo-test-default-rtdb.europe-west1.firebasedatabase.app';apiKey='fake-public-project-key'}|ConvertTo-Json -Compress
+$code='rfdb1.'+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($invite)).TrimEnd('=').Replace('+','-').Replace('/','_')
+$c=ConvertFrom-RfamSupportInvite $code
+Check ($c.apiKey -eq 'fake-public-project-key') 'Invite not decoded'
+$bad=$invite.Replace('https://demo-test-default-rtdb.europe-west1.firebasedatabase.app','https://evil.example')
+$code='rfdb1.'+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bad)).TrimEnd('=').Replace('+','-').Replace('/','_')
+$rejected=$false;try{ConvertFrom-RfamSupportInvite $code}catch{$rejected=$true};Check $rejected 'Unsafe origin accepted'
+`));
+test('support authenticates then sends only the bounded report, hiding network credentials in errors',{skip:process.platform!=='win32'},()=>run(`
+. '${path.resolve(__dirname,'../scripts/support.ps1').replaceAll("'","''")}'
+$script:calls=0
+function Invoke-RestMethod($Method,$Uri,$ContentType,$Body,$TimeoutSec){
+ $script:calls++
+ if($script:calls -eq 1){Check ($Uri -like 'https://identitytoolkit.googleapis.com/*') 'Unexpected authentication origin';return @{localId='test-uid';idToken='FAKE-TOKEN'}}
+ Check ($Uri -eq 'https://demo.firebaseio.com/diagnostics/test-uid.json?auth=FAKE-TOKEN') 'Wrong report destination'
+ $text=[Text.Encoding]::UTF8.GetString($Body)
+ Check ($text -notmatch 'FAKE-TOKEN|test-password') 'Credentials in report'
+ return @{}
+}
+Send-RfamSupportReport @{schema=1;updatedAt=@{'.sv'='timestamp'};events='[]'} @{databaseURL='https://demo.firebaseio.com';apiKey='fake-key'} 'test@example.test' 'test-password' $false
+Check ($script:calls -eq 2) 'Report not sent'
+function Invoke-RestMethod {throw 'SECRET-TOKEN-FROM-SERVER'}
+try{Send-RfamSupportReport @{events='[]'} @{apiKey='fake';databaseURL='https://demo.firebaseio.com'} 'test@example.test' 'test-password' $false;throw 'Expected error'}catch{Check ($_.Exception.Message -notmatch 'SECRET|test-password') 'Raw credential error leaked'}
+`));

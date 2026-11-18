@@ -13,6 +13,7 @@ $ErrorActionPreference='Stop'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 . (Join-Path $PSScriptRoot 'scripts\installer-core.ps1')
 . (Join-Path $PSScriptRoot 'scripts\installer-tui.ps1')
+. (Join-Path $PSScriptRoot 'scripts\support.ps1')
 Initialize-RfamTui (!$NonInteractive -and $Action -eq 'Menu')
 $bdRoot=Join-Path $env:APPDATA 'BetterDiscord'
 $customRoot=!!$DiscordRoot
@@ -63,8 +64,8 @@ function Start-RfamInstallCore([bool]$Maintenance) {
     } else {Write-RfamLine '[4/4] Установка завершена. Настройка фоновой задачи не изменена.'}
     Write-RfamLine ''
     Write-RfamLine ' ГОТОВО — запустите Discord и включите RedflagAutoMute в разделе Плагины.' -ForegroundColor Green
-    Write-RfamLine ' Шестерёнка → Подключение → У меня есть приглашение → вставить код друга.'
-    Write-RfamLine ' Для нового аккаунта: Нет аккаунта? Создать → email и отдельный пароль.'
+    Write-RfamLine ' Шестерёнка → Подключение → Приглашение → вставить код друга.'
+    Write-RfamLine ' Мастер: приглашение → Я здесь впервые → email и пароль → создать аккаунт.'
     Write-RfamLine ' Ваши настройки, группы и пароли сохранены.'
 }
 function Start-RfamInstall([bool]$Maintenance) {
@@ -76,6 +77,21 @@ function Start-RfamInstall([bool]$Maintenance) {
         Start-RfamInstallCore $Maintenance
     } finally {if($locked){$mutex.ReleaseMutex()};$mutex.Dispose()}
 }
+function Start-RfamManualUpdate {
+    Reset-RfamScreen 'Обновление плагина'
+    $mutex=New-Object Threading.Mutex($false,('Local\'+(Get-RfamTaskName)));$locked=$false
+    try {
+        try {$locked=$mutex.WaitOne(0)} catch [Threading.AbandonedMutexException] {$locked=$true}
+        if(!$locked){throw 'Уже выполняется установка или фоновая проверка. Повторите позже.'}
+        Write-RfamLine 'Проверяем последний стабильный релиз GitHub…' -ForegroundColor Cyan
+        $cfg=@{pluginDirectory=$PluginDirectory;discordRoot=$DiscordRoot;bdRoot=$bdRoot}
+        Invoke-RfamPluginUpdate $MaintenanceDirectory $cfg -ForceCheck
+        $state=Read-RfamState (Join-Path $MaintenanceDirectory 'plugin-update\state.json')
+        $labels=@{'up-to-date'='Установлена актуальная версия.';'awaiting-startup'='Обновление установлено. Ожидаем запуска плагина.';'updated'='Обновление подтверждено.';'error'='Проверка не удалась. Установленный плагин сохранён.';'unknown-local-version'='Сначала установите плагин пунктом 1 или 2.';'discord-updating'='Discord обновляется. Повторите проверку позже.';'blocked-after-rollback'='Эта версия ранее не запустилась и была отменена. Ожидаем исправления.';'rolled-back'='Выполнен откат неработающей версии.';'plugin-disabled'='Включите плагин в BetterDiscord для проверки запуска.';'changed-externally'='Файл был изменён другим процессом. Повторите проверку.'}
+        if($labels.ContainsKey([string]$state.status)){Write-RfamLine $labels[[string]$state.status]}else{Write-RfamLine 'Проверка запуска ещё выполняется. Повторите позже.'}
+    } finally {if($locked){$mutex.ReleaseMutex()};$mutex.Dispose()}
+}
+
 try {
     if($NonInteractive -and $Action -eq 'Menu'){$Action='Install'}
     if($Action -eq 'Install'){Start-RfamInstall ([bool]$EnableMaintenance);exit 0}
@@ -84,11 +100,13 @@ try {
     while($true){
         Show-RfamHeader
         Write-RfamLine '  [1] Установить / восстановить + включить автовосстановление' -ForegroundColor White
-        Write-RfamLine '  [2] Установить / обновить только плагин и BetterDiscord'
+        Write-RfamLine '  [2] Установить плагин из ZIP / восстановить BetterDiscord'
         Write-RfamLine '  [3] Диагностика и пути журналов'
         Write-RfamLine '  [4] Отключить автовосстановление'
         Write-RfamLine '  [5] Выбрать Discord: Stable / PTB / Canary'
         Write-RfamLine '  [6] Включить / отключить автообновление плагина (раз в 6 часов)'
+        Write-RfamLine '  [7] Проверить обновления плагина сейчас'
+        Write-RfamLine '  [8] Собрать / отправить диагностику'
         Write-RfamLine '  [0] Выход'
         Write-RfamLine ''
         $choice=Read-RfamInput ' Выберите пункт [1]'
@@ -100,6 +118,8 @@ try {
                 '4' {Disable-RfamMaintenance;Write-RfamLine ' Автовосстановление отключено. Плагин и настройки сохранены.' -ForegroundColor Green}
                 '5' {if($customRoot){Write-RfamLine 'Используется путь -DiscordRoot; для смены перезапустите без него.'}else{$new=Read-RfamInput ' stable / ptb / canary';if($new -in @('stable','ptb','canary')){$Channel=$new;$DiscordRoot=Get-RfamDiscordRoot $Channel}else{Write-RfamLine 'Неизвестный канал'}}}
                 '6' {$file=Join-Path $MaintenanceDirectory 'maintenance.json';$cfg=Read-RfamState $file;if(!$cfg.version){throw 'Сначала включите фоновую задачу пунктом 1'};$cfg.autoUpdatePlugin=!($cfg.autoUpdatePlugin -eq $true);Save-RfamJson $cfg $file;Write-RfamLine (' Автообновление плагина: '+$cfg.autoUpdatePlugin)}
+                '7' {Start-RfamManualUpdate}
+                '8' {Start-RfamSupport $PluginDirectory $DiscordRoot $bdRoot $MaintenanceDirectory $Channel}
                 '0' {exit 0}
                 default {Write-RfamLine ' Выберите номер пункта.' -ForegroundColor Yellow}
             }
