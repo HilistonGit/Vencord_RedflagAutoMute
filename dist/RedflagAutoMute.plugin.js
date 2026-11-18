@@ -1,7 +1,7 @@
 /**
  * @name RedflagAutoMute
  * @author RedflagAutoMute contributors
- * @version 2.0.6
+ * @version 2.0.7
  * @description Муть токсичных людей вместе с друзьями.
  */
 "use strict";
@@ -705,7 +705,7 @@ class Diagnostics {
         const kind=['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(error?.name)?error.name:'none';
         // Never persist messages, arbitrary stack text, URLs or user-provided values.
         const frames=[...String(error?.stack||'').matchAll(/RedflagAutoMute\.plugin\.js:(\d{1,7}):(\d{1,7})/g)].slice(0,6).map(m=>`${m[1]}:${m[2]}`).join(',');
-        const item={event,kind,frames,at:this.clock(),plugin:'2.0.6',betterdiscord:version(this.api.version),react:version(this.api.React?.version),discord:version(globalThis.DiscordNative?.app?.getVersion?.())};
+        const item={event,kind,frames,at:this.clock(),plugin:'2.0.7',betterdiscord:version(this.api.version),react:version(this.api.React?.version),discord:version(globalThis.DiscordNative?.app?.getVersion?.())};
         const prev=this.entries[this.entries.length-1];
         if(prev&&prev.event===event&&prev.kind===kind&&prev.frames===frames&&item.at-prev.at<60000)return;
         this.entries.push(item);this.entries=this.entries.slice(-20);this.serial++;
@@ -966,7 +966,7 @@ module.exports = class RedflagAutoMute {
         if (typeof document !== "undefined") this.highlights = new Highlights(BdApi, document);
         this.unpatches = ["user-context", "user-profile", "user-profile-overflow-menu"].map(nav =>
             BdApi.ContextMenu.patch(nav, (tree, props) => this.patchMenu(tree, props)));
-        try { this.runtimeHealth = createRuntimeHealth("2.0.6"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
+        try { this.runtimeHealth = createRuntimeHealth("2.0.7"); this.runtimeHealth.pulse(); } catch { /* Optional local maintenance signal. */ }
         this.tick();
         this.timer = setInterval(() => this.tick(), 1000);
     }

@@ -1,5 +1,22 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spawnSync}=require('node:child_process');
 const core=path.resolve(__dirname,'../scripts/installer-core.ps1').replaceAll("'","''");
+test('console capture preserves loader errors and removes secrets',{skip:process.platform!=='win32'},()=>run(`
+. '${path.resolve(__dirname,'../scripts/support.ps1').replaceAll("'","''")}'
+$file=Join-Path $root 'console.log'
+@'
+[INFO:CONSOLE] "[BetterDiscord] [PluginManager] RedflagAutoMute SyntaxError: Unexpected token", source: SECRET-SOURCE
+[RedflagAutoMute] TypeError: Button is undefined; email=test@example.org password=SECRET-PASS token=SECRET-TOKEN
+unrelated console message
+'@|Set-Content $file
+$events=@(Get-RfamConsoleEvents $file);$json=$events|ConvertTo-Json
+Check ($events.Count -eq 2) 'Incorrect console selection'
+Check ($json -match 'SyntaxError: Unexpected token') 'Loader error missing'
+Check ($json -match 'Button is undefined') 'Runtime error missing'
+Check ($json -notmatch 'SECRET|test@example|unrelated') 'Sensitive value leaked'
+function Test-RfamDiscordRunning {return $true}
+function Start-Process {throw 'MUST-NOT-LAUNCH'}
+try{Start-RfamConsoleCapture 'a' 'b' $root 'stable';throw 'Expected refusal'}catch{Check ($_.Exception.Message -notmatch 'MUST-NOT-LAUNCH|Expected refusal') 'Running Discord interrupted'}
+`));
 function run(body){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rfam-core-'));try{const file=path.join(dir,'test.ps1');fs.writeFileSync(file,'\ufeff'+`$ErrorActionPreference='Stop'\n. '${core}'\n$root=$PSScriptRoot\nfunction Check($condition,$message){if(!$condition){throw $message}}\n`+body);const env={...process.env};for(const k of Object.keys(env))if(k.toLowerCase()==='psmodulepath')delete env[k];const r=spawnSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',file],{encoding:'utf8',env});assert.equal(r.status,0,r.stdout+r.stderr);}finally{if(path.dirname(dir)===path.resolve(os.tmpdir())&&path.basename(dir).startsWith('rfam-core-'))fs.rmSync(dir,{recursive:true,force:true});}}
 const setup=`
 $discord=Join-Path $root 'Discord';$bd=Join-Path $root 'BetterDiscord';$plugins=Join-Path $bd 'plugins';$resources=Join-Path $discord 'app-1.0.1/resources'
@@ -167,7 +184,7 @@ Check ((Get-RfamPluginVersion $installed) -eq [version]'2.0.3') 'Update not inst
 `));
 test('support collects without plugin startup and strips arbitrary diagnostics fields',{skip:process.platform!=='win32'},()=>run(setup+`
 . '${path.resolve(__dirname,'../scripts/support.ps1').replaceAll("'","''")}'
-@{events=@(@{event='runtime';kind='TypeError';frames='42:3';message='SECRET';token='SECRET';plugin='2.0.6'},@{event='SECRET';kind='SECRET'})}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $plugins 'RedflagAutoMuteDiagnostics.config.json')
+@{events=@(@{event='runtime';kind='TypeError';frames='42:3';message='SECRET';token='SECRET';plugin='2.0.7'},@{event='SECRET';kind='SECRET'})}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $plugins 'RedflagAutoMuteDiagnostics.config.json')
 $r=Get-RfamSupportReport $plugins $discord $bd $root 'stable'
 Check ($r.events -notmatch 'SECRET') 'Sensitive data leaked'
 Check ($r.events -match '42:3') 'Error location missing'
@@ -180,18 +197,18 @@ $bad=$invite.Replace('https://demo-test-default-rtdb.europe-west1.firebasedataba
 $code='rfdb1.'+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bad)).TrimEnd('=').Replace('+','-').Replace('/','_')
 $rejected=$false;try{ConvertFrom-RfamSupportInvite $code}catch{$rejected=$true};Check $rejected 'Unsafe origin accepted'
 `));
-test('support authenticates then sends only the bounded report, hiding network credentials in errors',{skip:process.platform!=='win32'},()=>run(`
+test('anonymous support sends without email or password and hides network errors',{skip:process.platform!=='win32'},()=>run(`
 . '${path.resolve(__dirname,'../scripts/support.ps1').replaceAll("'","''")}'
 $script:calls=0
 function Invoke-RestMethod($Method,$Uri,$ContentType,$Body,$TimeoutSec){
  $script:calls++
- if($script:calls -eq 1){Check ($Uri -like 'https://identitytoolkit.googleapis.com/*') 'Unexpected authentication origin';return @{localId='test-uid';idToken='FAKE-TOKEN'}}
+ if($script:calls -eq 1){Check ($Uri -like 'https://identitytoolkit.googleapis.com/*') 'Unexpected authentication origin';Check ($Body -notmatch 'email|password') 'Registration form fields sent';return @{localId='test-uid';idToken='FAKE-TOKEN'}}
  Check ($Uri -eq 'https://demo.firebaseio.com/diagnostics/test-uid.json?auth=FAKE-TOKEN') 'Wrong report destination'
  $text=[Text.Encoding]::UTF8.GetString($Body)
  Check ($text -notmatch 'FAKE-TOKEN|test-password') 'Credentials in report'
  return @{}
 }
-Send-RfamSupportReport @{schema=1;updatedAt=@{'.sv'='timestamp'};events='[]'} @{databaseURL='https://demo.firebaseio.com';apiKey='fake-key'} 'test@example.test' 'test-password' $false
+Send-RfamSupportReport @{schema=1;updatedAt=@{'.sv'='timestamp'};events='[]'} @{databaseURL='https://demo.firebaseio.com';apiKey='fake-key'} $root
 Check ($script:calls -eq 2) 'Report not sent'
 function Invoke-RestMethod {throw 'SECRET-TOKEN-FROM-SERVER'}
 try{Send-RfamSupportReport @{events='[]'} @{apiKey='fake';databaseURL='https://demo.firebaseio.com'} 'test@example.test' 'test-password' $false;throw 'Expected error'}catch{Check ($_.Exception.Message -notmatch 'SECRET|test-password') 'Raw credential error leaked'}

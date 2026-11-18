@@ -13,7 +13,7 @@ class Diagnostics {
         const kind=['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(error?.name)?error.name:'none';
         // Never persist messages, arbitrary stack text, URLs or user-provided values.
         const frames=[...String(error?.stack||'').matchAll(/RedflagAutoMute\.plugin\.js:(\d{1,7}):(\d{1,7})/g)].slice(0,6).map(m=>`${m[1]}:${m[2]}`).join(',');
-        const item={event,kind,frames,at:this.clock(),plugin:'2.0.6',betterdiscord:version(this.api.version),react:version(this.api.React?.version),discord:version(globalThis.DiscordNative?.app?.getVersion?.())};
+        const item={event,kind,frames,at:this.clock(),plugin:'2.0.7',betterdiscord:version(this.api.version),react:version(this.api.React?.version),discord:version(globalThis.DiscordNative?.app?.getVersion?.())};
         const prev=this.entries[this.entries.length-1];
         if(prev&&prev.event===event&&prev.kind===kind&&prev.frames===frames&&item.at-prev.at<60000)return;
         this.entries.push(item);this.entries=this.entries.slice(-20);this.serial++;
